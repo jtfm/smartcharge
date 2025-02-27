@@ -1,0 +1,15 @@
+# Ignore all node_modules directories
+/node_modules/
+
+# Ignore anything in a bin/ directory at any level
+**/bin/
+
+# Ignore all vscode settings
+.vscode
+
+# Ignore go.sum
+go.sum
+go.work.sum
+
+# Ignore pulumi dev environment configuration as this contains secrets
+infra/Pulumi.dev.yaml

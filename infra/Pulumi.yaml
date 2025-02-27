@@ -1,0 +1,30 @@
+# Project config
+name: infrastructure
+runtime: nodejs
+description: A pulumi program to deploy infrastructure for the smartcharge application.
+config:
+  pulumi:tags:
+    value:
+      pulumi:template: aws-typescript
+  octopus_account_number:
+    type: string
+    description: The account number of an octopus energy account with API access.
+  octopus_username:
+    type: string
+    description: The account number of an octopus energy account of the account number given.
+  octopus_password:
+    type: string
+    description: The password of an octopus energy account of the account number given.
+  givenergy_token:
+    type: string
+    description: The API token providing access to the givenergy API
+  givenergy_inverter_id:
+    type: string
+    description: The id of your givenergy inverter unit
+  solcast_site_code:
+    type: string
+    description: The code of your solcast site.
+  solcast_api_key:
+    type: string
+    description: The API key for accessing Solcast's solar forecasting API 
+  
