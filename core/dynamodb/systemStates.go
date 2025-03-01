@@ -8,6 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/rs/zerolog/log"
 
 	"github.com/jtfm/smartcharge/core/utils"
 )
@@ -149,6 +150,8 @@ func (c *ddbClient) WriteSystemStates(ctx context.Context, systemStates []System
 	if err != nil {
 		return err
 	}
+
+	log.Info().Msg("Written system states to database.")
 
 	return nil
 }

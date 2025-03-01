@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/rs/zerolog/log"
@@ -14,3 +15,9 @@ func GetEnvStrict(key string) string {
 	return value
 }
 
+func FormatFloatPointer(p *float64) string {
+	if p != nil {
+		return fmt.Sprintf("%f", *p)
+	}
+	return "nil"
+}

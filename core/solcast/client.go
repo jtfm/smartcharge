@@ -24,7 +24,7 @@ func NewSolcastClient(apiKey string, siteCode string) *SolcastClient {
 }
 
 // GetSolarForecast gets the solar forecast
-func (c *SolcastClient) GetSolarForecasts() ([]InternalForecast, error) {
+func (c *SolcastClient) GetSolarForecasts() (*[]InternalForecast, error) {
 
 	url := fmt.Sprintf(
 		"%s/rooftop_sites/%s/forecasts?format=json",
@@ -47,6 +47,10 @@ func (c *SolcastClient) GetSolarForecasts() ([]InternalForecast, error) {
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
+	}
+
+	if resp.StatusCode == 429 {
+		return nil, fmt.Errorf("rate limit exceeded")
 	}
 
 	if resp.StatusCode != 200 {
@@ -74,5 +78,5 @@ func (c *SolcastClient) GetSolarForecasts() ([]InternalForecast, error) {
 		internalForecasts = append(internalForecasts, *internalForecast)
 	}
 
-	return internalForecasts, nil
+	return &internalForecasts, nil
 }

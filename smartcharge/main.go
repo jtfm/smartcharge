@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/aws/aws-lambda-go/lambda"
@@ -37,7 +38,7 @@ func main() {
 }
 
 func isInLambda() bool {
-	return utils.GetEnvStrict("AWS_LAMBDA_FUNCTION_NAME") != ""
+	return os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != ""
 }
 
 func handler(ctx context.Context) error {
@@ -58,32 +59,69 @@ func handler(ctx context.Context) error {
 	if len(systemStates) == 0 {
 		log.Info().Msg("No system states found. Creating new system states for the next 24 hours.")
 		systemStates = make([]dynamodb.SystemState, 0, 48)
+		pvEstimate := 0.0
 		for i := 0; i < 48; i++ {
 			systemStates = append(systemStates, dynamodb.SystemState{
-				StartTime: latestHalfHour.Add(time.Duration(i) * 30 * time.Minute),
+				StartTime:  latestHalfHour.Add(time.Duration(i) * 30 * time.Minute),
+				PvEstimate: &pvEstimate,
 			})
 		}
 	}
 
+	forecastRequestHour := 0
+	forecastRequestMinute := 30
+
+	// Get forecasts for the next 24 hours at 00:30
+	log.Info().Msgf("Latest half hour: %s", latestHalfHour.Format("2006-01-02 15:04:05"))
+
+	forecastsRequired := true
+	if latestHalfHour.Hour() == forecastRequestHour && latestHalfHour.Minute() >= forecastRequestMinute {
+		forecastsRequired = true
+	}
+
+	if forecastsRequired {
+		log.Info().Msg("Getting solar forecasts from API...")
+		solCastClient := solcast.NewSolcastClient(
+			utils.GetEnvStrict("SOLCAST_API_KEY"), utils.GetEnvStrict("SOLCAST_SITE_CODE"))
+		forecasts, err := solCastClient.GetSolarForecasts()
+		if err != nil {
+			log.Error().Err(err).Msg("Error getting solar forecasts")
+		}
+		if forecasts != nil {
+			for i := range systemStates {
+				systemStates[i].PvEstimate = nil
+				for _, forecast := range *forecasts {
+					if systemStates[i].StartTime.Equal(
+						forecast.StartTime) {
+						pvEstimateCopy := forecast.PvEstimate
+						systemStates[i].PvEstimate = &pvEstimateCopy
+					}
+				}
+			}
+			log.Info().Msgf("Got %d solar forecasts", len(*forecasts))
+
+			// Write the forecasts to the database
+			err = ddbClient.WriteSystemStates(ctx, systemStates)
+			if err != nil {
+				log.Error().Err(err).Msg("Error writing solar forecasts to the database")
+				return err
+			}
+		}
+	} else {
+		log.Info().Msg("Not getting solar forecasts.")
+	}
+
 	updateUnitRatesRequired := false
-	updateForecastsRequired := false
 	for _, systemState := range systemStates {
 		if !updateUnitRatesRequired && systemState.UnitRate == nil {
 			log.Info().Msgf(
 				"Unit rate is nil at %s", systemState.StartTime.Format("2006-01-02 15:04:05"))
 			updateUnitRatesRequired = true
-		}
-		// Only update forecasts if they are nil and less than 12 hours away
-		// This is to avoid too many unnecessary API calls (we have a usage limit of 10 per day)
-		if !updateForecastsRequired && systemState.PvEstimate == nil && systemState.StartTime.Before(time.Now().Add(12*time.Hour)) {
-			log.Info().Msgf(
-				"PvEstimate is nil at %s", systemState.StartTime.Format("2006-01-02 15:04:05"))
-			updateForecastsRequired = true
+			break
 		}
 	}
 
 	log.Info().Msgf("Unit rate update required: %t", updateUnitRatesRequired)
-	log.Info().Msgf("Forecasts update required: %t", updateForecastsRequired)
 
 	if updateUnitRatesRequired {
 		unitRates, err := updateUnitRates()
@@ -102,24 +140,6 @@ func handler(ctx context.Context) error {
 		}
 	}
 
-	if updateForecastsRequired {
-		log.Info().Msg("Getting solar forecasts from API...")
-		solCastClient := solcast.NewSolcastClient(
-			utils.GetEnvStrict("SOLCAST_API_KEY"), utils.GetEnvStrict("SOLCAST_SITE_CODE"))
-		forecasts, err := solCastClient.GetSolarForecasts()
-		if err != nil {
-			return err
-		}
-
-		for i := range systemStates {
-			for _, forecast := range forecasts {
-				if systemStates[i].PvEstimate == nil && systemStates[i].StartTime.Equal(forecast.StartTime) {
-					pvEstimateCopy := forecast.PvEstimate
-					systemStates[i].PvEstimate = &pvEstimateCopy
-				}
-			}
-		}
-	}
 	// Predict the energy usage for the next 24 hours based on the average energy usage for the last 7 days
 
 	// Get the average energy usage for the last 7 days
@@ -150,6 +170,9 @@ func handler(ctx context.Context) error {
 		}
 		predictedUsage := sum / float64(len(usageValues))
 		systemStates[i].PredictedUsage = &predictedUsage
+
+		// Reset the WillCharge field
+		systemStates[i].WillCharge = false
 	}
 
 	inverterData, err := geClient.GetInverterData()
@@ -167,7 +190,7 @@ func handler(ctx context.Context) error {
 
 	// Add auto charge logic
 	for i := range systemStates {
-		if *systemStates[i].UnitRate <= 0.0 {
+		if systemStates[i].UnitRate != nil && *systemStates[i].UnitRate <= 0.0 {
 			systemStates[i].WillCharge = true
 		}
 	}
@@ -178,8 +201,6 @@ func handler(ctx context.Context) error {
 		var nextEmptyTime *time.Time
 		for i := 1; i < len(systemStates); i++ {
 			nextEmptyTime = nil
-			current := systemStates[i]
-			//previous := systemStates[i-1]
 
 			if systemStates[i-1].PvEstimate == nil {
 				error := fmt.Errorf("previous.PvEstimate is nil")
@@ -195,12 +216,6 @@ func handler(ctx context.Context) error {
 			}
 			previousPredictedUsage := *systemStates[i-1].PredictedUsage
 
-			if current.UnitRate == nil {
-				error := fmt.Errorf("current.UnitRate is nil")
-				log.Error().Err(error).Msg("Error planning charging times")
-				return error
-			}
-
 			previousPredictedBatteryPower := *systemStates[i-1].PredictedBatteryPower
 			predictedBatteryPower := previousPredictedBatteryPower + previousPvEstimate - previousPredictedUsage
 
@@ -214,13 +229,13 @@ func handler(ctx context.Context) error {
 
 			systemStates[i].PredictedBatteryPower = &predictedBatteryPower
 
-			log.Debug().Msgf(
-				"Predictions for %s: usage: %f, forecast: %f, battery: %f, unitRate: %f, charging: %t",
+			log.Info().Msgf(
+				"Predictions for %s: usage: %s, forecast: %s, battery: %s, unitRate: %s, charging: %t",
 				systemStates[i].StartTime.Format("2006-01-02 15:04:05"),
-				*systemStates[i].PredictedUsage,
-				*systemStates[i].PvEstimate,
-				*systemStates[i].PredictedBatteryPower,
-				*systemStates[i].UnitRate,
+				utils.FormatFloatPointer(systemStates[i].PredictedUsage),
+				utils.FormatFloatPointer(systemStates[i].PvEstimate),
+				utils.FormatFloatPointer(systemStates[i].PredictedBatteryPower),
+				utils.FormatFloatPointer(systemStates[i].UnitRate),
 				systemStates[i].WillCharge,
 			)
 			if *systemStates[i].PredictedBatteryPower <= 0 {
@@ -241,7 +256,7 @@ func handler(ctx context.Context) error {
 		)
 		// Find the best time to charge the battery before it runs out
 		// This is the time when the unit rate is the lowest
-		minimumUnitRate := 100.0
+		minimumUnitRate := 1000.0
 		minimumIndex := 0
 		for i, s := range systemStates {
 			if s.StartTime.Equal(*nextEmptyTime) {
