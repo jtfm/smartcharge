@@ -56,13 +56,19 @@ func handler(ctx context.Context) error {
 		return err
 	}
 
-	if len(systemStates) == 0 {
-		log.Info().Msg("No system states found. Creating new system states for the next 24 hours.")
-		systemStates = make([]dynamodb.SystemState, 0, 48)
+	if len(systemStates) > 48 {
+		log.Error().Msgf("Found %d system states. Expected 48.", len(systemStates))
+	}
+
+	if len(systemStates) < 48 {
+		log.Info().Msgf("Found %d system states", len(systemStates))
+
 		pvEstimate := 0.0
-		for i := 0; i < 48; i++ {
+		for i := len(systemStates); i < 48; i++ {
+			systemStateTime := latestHalfHour.Add(time.Duration(i) * 30 * time.Minute)
+			log.Info().Msgf("Creating new system state for %s", systemStateTime.Format("2006-01-02 15:04:05"))
 			systemStates = append(systemStates, dynamodb.SystemState{
-				StartTime:  latestHalfHour.Add(time.Duration(i) * 30 * time.Minute),
+				StartTime:  systemStateTime,
 				PvEstimate: &pvEstimate,
 			})
 		}
@@ -74,7 +80,7 @@ func handler(ctx context.Context) error {
 	// Get forecasts for the next 24 hours at 00:30
 	log.Info().Msgf("Latest half hour: %s", latestHalfHour.Format("2006-01-02 15:04:05"))
 
-	forecastsRequired := true
+	forecastsRequired := false
 	if latestHalfHour.Hour() == forecastRequestHour && latestHalfHour.Minute() >= forecastRequestMinute {
 		forecastsRequired = true
 	}

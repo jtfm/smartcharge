@@ -25,6 +25,7 @@ type SystemState struct {
 }
 
 // Reads system states from the DynamoDB table
+// Returns an array of SystemState structs in ascending order of time
 func (c *ddbClient) ReadSystemStates(ctx context.Context, start, end time.Time) (
 	[]SystemState, error) {
 	tableName := utils.GetEnvStrict("DDB_SYSTEM_STATES_TABLE_NAME")
