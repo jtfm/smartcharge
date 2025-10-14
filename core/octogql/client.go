@@ -193,9 +193,13 @@ query Account($accountNumber: String!) {
 	// Serialize Tariff data for non-outgoing rates
 	unitRates := make([]UnitRate, 0)
 	for _, agreement := range accountRoot.Data.Account.ElectricityAgreements {
-		if !strings.Contains(agreement.Tariff.ProductCode, "OUTGOING") {
+		// Skip outgoing/export tariffs
+		if strings.Contains(agreement.Tariff.ProductCode, "OUTGOING") ||
+			strings.Contains(agreement.Tariff.ProductCode, "EXPORT") {
 			continue
 		}
+		log.Info().Msgf("Getting unit rates for tariff: %s (%s)",
+			agreement.Tariff.FullName, agreement.Tariff.ProductCode)
 		unitRates = append(unitRates, agreement.Tariff.UnitRates...)
 	}
 
