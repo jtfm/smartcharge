@@ -23,6 +23,15 @@ var geClient = givenergy.NewGivenergyClient(
 )
 
 func main() {
+	// Set timezone to Europe/London for consistent behavior in Lambda and locally
+	// This handles BST/GMT transitions automatically
+	loc, err := time.LoadLocation("Europe/London")
+	if err != nil {
+		log.Fatal().Err(err).Msg("Error loading Europe/London timezone")
+	}
+	time.Local = loc
+	// log the current time and timezone
+	log.Info().Msgf("Current local time: %s", time.Now().Format("2006-01-02 15:04:05 MST"))
 
 	ctx := context.Background()
 
@@ -42,6 +51,10 @@ func isInLambda() bool {
 }
 
 func handler(ctx context.Context) error {
+
+	// Show time and time zone
+	log.Info().Msgf("Current time: %s", time.Now().Format("2006-01-02 15:04:05 MST"))
+	log.Info().Msgf("Server time zone: %s", time.Now().Location().String())
 
 	_, err := updateEnergyUsage(ctx)
 	if err != nil {

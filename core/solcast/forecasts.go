@@ -41,6 +41,12 @@ type InternalForecast struct {
 
 // Convert a Forecast to InternalForecast
 func ToInternal(f Forecast) (*InternalForecast, error) {
+	// Load Europe/London timezone for consistent behavior
+	londonTz, err := time.LoadLocation("Europe/London")
+	if err != nil {
+		return &InternalForecast{}, fmt.Errorf("failed to load Europe/London timezone: %v", err)
+	}
+
 	// Parse the period duration from the ISO 8601 format
 	periodDuration, err := time.ParseDuration(strings.ToLower(strings.TrimPrefix(f.Period, "PT")))
 	if err != nil {
@@ -50,10 +56,22 @@ func ToInternal(f Forecast) (*InternalForecast, error) {
 	// Calculate StartTime from PeriodEnd
 	startTime := f.PeriodEnd.Add(-periodDuration)
 
+	// Convert UTC times to Europe/London timezone
+	// Solcast API returns timestamps in UTC, but we need UK local time to match system states
+	localEndTime := f.PeriodEnd.In(londonTz)
+	localStartTime := startTime.In(londonTz)
+
+	// Log timezone conversion for debugging (first few forecasts only)
+	if f.PvEstimate > 0 { // Only log when there's actual solar generation
+		fmt.Printf("Solcast timezone conversion: UTC %s -> Europe/London %s\n",
+			startTime.Format("2006-01-02 15:04:05 MST"),
+			localStartTime.Format("2006-01-02 15:04:05 MST"))
+	}
+
 	// Create the InternalForecast with the converted fields
 	internal := InternalForecast{
-		StartTime:    startTime,
-		EndTime:      f.PeriodEnd,
+		StartTime:    localStartTime,
+		EndTime:      localEndTime,
 		PvEstimate:   f.PvEstimate,
 		PvEstimate10: f.PvEstimate10,
 		PvEstimate90: f.PvEstimate90,

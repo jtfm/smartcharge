@@ -132,15 +132,21 @@ func (c *GivenergyClient) fetchUsageForPeriod(start, end time.Time, grouping Gro
 
 	var processedResponse []EnergyUsage
 
+	// Load Europe/London timezone for consistent behavior
+	londonTz, err := time.LoadLocation("Europe/London")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load Europe/London timezone: %v", err)
+	}
+
 	for _, entry := range rawResponse.Data {
-		// Parse timestamps into time.Time
+		// Parse timestamps into time.Time - GivEnergy API returns times in UK local time
 		layout := "2006-01-02 15:04"
-		startTime, err := time.Parse(layout, entry.StartTime)
+		startTime, err := time.ParseInLocation(layout, entry.StartTime, londonTz)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse start_time: %v", err)
 		}
 
-		endTime, err := time.Parse(layout, entry.EndTime)
+		endTime, err := time.ParseInLocation(layout, entry.EndTime, londonTz)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse end_time: %v", err)
 		}

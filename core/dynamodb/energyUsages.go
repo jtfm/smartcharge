@@ -14,7 +14,7 @@ import (
 )
 
 // Reads energy usages from the DynamoDB table
-func (c *ddbClient) ReadEnergyUsages(ctx context.Context, start time.Time, end time.Time) ([]givenergy.EnergyUsage, error) {
+func (c *DdbClient) ReadEnergyUsages(ctx context.Context, start time.Time, end time.Time) ([]givenergy.EnergyUsage, error) {
 	tableName := utils.GetEnvStrict("DDB_ENERGY_USAGES_TABLE_NAME")
 
 	input := &dynamodb.QueryInput{
@@ -55,7 +55,7 @@ func (c *ddbClient) ReadEnergyUsages(ctx context.Context, start time.Time, end t
 }
 
 // Converts a map of DynamoDB attribute values to an EnergyUsage struct
-func (c *ddbClient) toEnergyUsage(item map[string]types.AttributeValue) (*givenergy.EnergyUsage, error) {
+func (c *DdbClient) toEnergyUsage(item map[string]types.AttributeValue) (*givenergy.EnergyUsage, error) {
 	// Convert the DynamoDB attribute values to EnergyUsage fields
 	var eu givenergy.EnergyUsage
 	if item["start_time"] != nil {
@@ -86,7 +86,7 @@ func (c *ddbClient) toEnergyUsage(item map[string]types.AttributeValue) (*givene
 }
 
 // Writes energy usages to the DynamoDB table
-func (c *ddbClient) WriteEnergyUsages(ctx context.Context, energyUsages []givenergy.EnergyUsage) error {
+func (c *DdbClient) WriteEnergyUsages(ctx context.Context, energyUsages []givenergy.EnergyUsage) error {
 	var writeRequests []types.WriteRequest
 
 	if energyUsages == nil {
@@ -121,7 +121,7 @@ func (c *ddbClient) WriteEnergyUsages(ctx context.Context, energyUsages []givene
 }
 
 // Converts an EnergyUsage to a DynamoDB WriteRequest
-func (c *ddbClient) energyUsageToWriteRequest(energyUsage *givenergy.EnergyUsage) types.WriteRequest {
+func (c *DdbClient) energyUsageToWriteRequest(energyUsage *givenergy.EnergyUsage) types.WriteRequest {
 	// Convert the EnergyUsage fields to DynamoDB attribute values
 	item := map[string]types.AttributeValue{
 		"partition_key": &types.AttributeValueMemberN{Value: "1"},

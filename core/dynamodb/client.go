@@ -11,12 +11,12 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type ddbClient struct {
+type DdbClient struct {
 	client *dynamodb.Client
 }
 
-// init initializes the DynamoDB client
-func InitDbClient(ctx context.Context) *ddbClient {
+// InitDbClient initializes the DynamoDB client
+func InitDbClient(ctx context.Context) *DdbClient {
 	// Load AWS configuration
 	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(utils.GetEnvStrict("AWS_REGION"))) // Change region as needed
 	if err != nil {
@@ -24,13 +24,13 @@ func InitDbClient(ctx context.Context) *ddbClient {
 	}
 
 	// Create a DynamoDB client
-	return &ddbClient{
+	return &DdbClient{
 		client: dynamodb.NewFromConfig(cfg),
 	}
 }
 
 // Writes writeRequests to the DynamoDB table in batches of 25
-func (c *ddbClient) batchWriteItems(
+func (c *DdbClient) batchWriteItems(
 	ctx context.Context, writeRequests []types.WriteRequest, tableName string) (bool, error) {
 	var batchSize = 25
 	for i := 0; i < len(writeRequests); i += batchSize {

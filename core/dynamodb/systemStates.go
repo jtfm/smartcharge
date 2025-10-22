@@ -26,7 +26,7 @@ type SystemState struct {
 
 // Reads system states from the DynamoDB table
 // Returns an array of SystemState structs in ascending order of time
-func (c *ddbClient) ReadSystemStates(ctx context.Context, start, end time.Time) (
+func (c *DdbClient) ReadSystemStates(ctx context.Context, start, end time.Time) (
 	[]SystemState, error) {
 	tableName := utils.GetEnvStrict("DDB_SYSTEM_STATES_TABLE_NAME")
 
@@ -78,7 +78,7 @@ func (c *ddbClient) ReadSystemStates(ctx context.Context, start, end time.Time) 
 }
 
 // Converts a map of DynamoDB attribute values to a SystemState struct
-func (c *ddbClient) attributeValuesToSystemState(item map[string]types.AttributeValue) (*SystemState, error) {
+func (c *DdbClient) attributeValuesToSystemState(item map[string]types.AttributeValue) (*SystemState, error) {
 	// Convert the DynamoDB attribute values to EnergyUsage fields
 	var s SystemState
 	if item["start_time"] != nil {
@@ -129,7 +129,7 @@ func (c *ddbClient) attributeValuesToSystemState(item map[string]types.Attribute
 }
 
 // Writes the given system states to the DynamoDB table
-func (c *ddbClient) WriteSystemStates(ctx context.Context, systemStates []SystemState) error {
+func (c *DdbClient) WriteSystemStates(ctx context.Context, systemStates []SystemState) error {
 
 	if len(systemStates) == 0 {
 		return nil
@@ -157,7 +157,7 @@ func (c *ddbClient) WriteSystemStates(ctx context.Context, systemStates []System
 	return nil
 }
 
-func (c *ddbClient) systemStateToWriteRequest(s *SystemState) types.WriteRequest {
+func (c *DdbClient) systemStateToWriteRequest(s *SystemState) types.WriteRequest {
 	attributeMap := map[string]types.AttributeValue{
 		"partition_key": &types.AttributeValueMemberN{Value: "1"},
 		"start_time": &types.AttributeValueMemberN{

@@ -1,3 +1,9 @@
 go 1.21
 
 use ./smartcharge
+
+use ./core
+
+use ./battery-dashboard
+
+use ./api
