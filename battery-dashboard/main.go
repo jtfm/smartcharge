@@ -173,328 +173,321 @@ func generateHTML(systemStates []dynamodb.SystemState) (string, error) {
 	tmpl := `<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Battery Dashboard - SmartCharge</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        h1 {
-            color: #333;
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        .chart-container {
-            position: relative;
-            height: 500px;
-            margin: 20px 0;
-        }
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin: 20px 0;
-        }
-        .stat-card {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 6px;
-            border-left: 4px solid #007bff;
-        }
-        .stat-value {
-            font-size: 24px;
-            font-weight: bold;
-            color: #007bff;
-        }
-        .stat-label {
-            color: #666;
-            font-size: 14px;
-        }
-        .legend {
-            margin: 20px 0;
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 6px;
-        }
-        .legend-item {
-            display: inline-block;
-            margin-right: 20px;
-            margin-bottom: 5px;
-        }
-        .legend-color {
-            display: inline-block;
-            width: 20px;
-            height: 15px;
-            margin-right: 5px;
-            vertical-align: middle;
-        }
-        .timestamp {
-            text-align: center;
-            color: #666;
-            font-size: 12px;
-            margin-top: 20px;
-        }
-    </style>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Battery Dashboard - SmartCharge</title>
+	<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+	<style>
+		body {
+			font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+			margin: 0;
+			padding: 20px;
+			background-color: #f5f5f5;
+		}
+		.container {
+			max-width: 1200px;
+			margin: 0 auto;
+			background: white;
+			padding: 20px;
+			border-radius: 8px;
+			box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+		}
+		h1 {
+			color: #333;
+			text-align: center;
+			margin-bottom: 30px;
+		}
+		.chart-container {
+			position: relative;
+			height: 500px;
+			margin: 20px 0;
+		}
+		.stats {
+			display: grid;
+			grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+			gap: 20px;
+			margin: 20px 0;
+		}
+		.stat-card {
+			background: #f8f9fa;
+			padding: 15px;
+			border-radius: 6px;
+			border-left: 4px solid #007bff;
+		}
+		.stat-value {
+			font-size: 24px;
+			font-weight: bold;
+			color: #007bff;
+		}
+		.stat-label {
+			color: #666;
+			font-size: 14px;
+		}
+		.legend {
+			margin: 20px 0;
+			padding: 15px;
+			background: #f8f9fa;
+			border-radius: 6px;
+		}
+		.legend-item {
+			display: inline-block;
+			margin-right: 20px;
+			margin-bottom: 5px;
+		}
+		.legend-color {
+			display: inline-block;
+			width: 20px;
+			height: 15px;
+			margin-right: 5px;
+			vertical-align: middle;
+		}
+		.timestamp {
+			text-align: center;
+			color: #666;
+			font-size: 12px;
+			margin-top: 20px;
+		}
+	</style>
 </head>
 <body>
-    <div class="container">
-        <h1>🔋 Battery Dashboard</h1>
-        
-        <div class="stats">
-            <div class="stat-card">
-                <div class="stat-value">{{.DataPoints}}</div>
-                <div class="stat-label">Data Points</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value">{{.ChargeSlots}}</div>
-                <div class="stat-label">Planned Charge Slots</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value">{{.MaxPrice}}p</div>
-                <div class="stat-label">Max Unit Price</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value">{{.MinPrice}}p</div>
-                <div class="stat-label">Min Unit Price</div>
-            </div>
-        </div>
+	<div class="container">
+		<h1>🔋 Battery Dashboard</h1>
+		
+		<div class="stats">
+			<div class="stat-card">
+				<div class="stat-value">{{.DataPoints}}</div>
+				<div class="stat-label">Data Points</div>
+			</div>
+			<div class="stat-card">
+				<div class="stat-value">{{.ChargeSlots}}</div>
+				<div class="stat-label">Planned Charge Slots</div>
+			</div>
+			<div class="stat-card">
+				<div class="stat-value">{{.MaxPrice}}p</div>
+				<div class="stat-label">Max Unit Price</div>
+			</div>
+			<div class="stat-card">
+				<div class="stat-value">{{.MinPrice}}p</div>
+				<div class="stat-label">Min Unit Price</div>
+			</div>
+		</div>
 
-        <div class="legend">
-            <div class="legend-item">
-                <span class="legend-color" style="background-color: #36a2eb;"></span>
-                Battery Power (kW)
-            </div>
-            <div class="legend-item">
-                <span class="legend-color" style="background-color: #4bc0c0;"></span>
-                Predicted Usage (kW)
-            </div>
-            <div class="legend-item">
-                <span class="legend-color" style="background: linear-gradient(to right, #00c800, #ffa500, #ff0000); width: 100px;"></span>
-                Unit Price (Green = Cheap, Red = Expensive)
-            </div>
-            <div class="legend-item">
-                <span class="legend-color" style="background-color: rgba(100, 150, 255, 0.4);"></span>
-                Charging Slots (Background)
-            </div>
-        </div>
-        
-        <div class="chart-container">
-            <canvas id="batteryChart"></canvas>
-        </div>
+		<div class="legend">
+			<div class="legend-item">
+				<span class="legend-color" style="background-color: #0000FF;"></span>
+				Battery Power (kW)
+			</div>
+			<div class="legend-item">
+				<span class="legend-color" style="background-color: #FFD700;"></span>
+				Predicted Usage (kW)
+			</div>
+			<div class="legend-item">
+				<span class="legend-color" style="background: linear-gradient(to right, #00c800, #ffa500, #ff0000); width: 100px;"></span>
+				Unit Price (Green = Cheap, Red = Expensive)
+			</div>
+			<div class="legend-item">
+				<span class="legend-color" style="background-color: rgba(100, 150, 255, 0.4);"></span>
+				Charging Slots (Background)
+			</div>
+		</div>
+		
+		<div class="chart-container">
+			<div id="batteryChart"></div>
+		</div>
 
-        <div class="timestamp">
-            Generated: {{.Timestamp}}
-        </div>
-    </div>
+		<div class="timestamp">
+			Generated: {{.Timestamp}}
+		</div>
+	</div>
 
-    <script>
-        const systemStates = {{.SystemStatesJSON}};
-        
-        // Prepare data for Chart.js
-        const labels = systemStates.map(state => {
-            const date = new Date(state.start_time);
-            return date.toLocaleString('en-GB', { 
-                month: 'short', 
-                day: 'numeric', 
-                hour: '2-digit', 
-                minute: '2-digit'
-            });
-        });
+	<script>
+		const systemStates = {{.SystemStatesJSON}};
+		
+		// Prepare time arrays - use actual timestamps for proper time-based positioning
+		const times = systemStates.map(state => state.start_time);
+		const batteryPowerData = systemStates.map(state => state.predicted_battery_power || 0);
+		const predictedUsageData = systemStates.map(state => state.predicted_usage || 0);
+		const unitPriceData = systemStates.map(state => state.unit_rate || 0);
 
-        const batteryPowerData = systemStates.map(state => state.predicted_battery_power || 0);
-        const predictedUsageData = systemStates.map(state => state.predicted_usage || 0);
-        const unitPriceData = systemStates.map(state => state.unit_rate || 0);
-        const chargeData = systemStates.map(state => state.will_charge ? (state.unit_rate || 0) : null);
+		// For bars: shift x values by 15 minutes (half of 30 min slot) so bars start at slot beginning
+		// Calculate midpoint times for bars (15 minutes = 900000 ms after start)
+		const barTimes = systemStates.map(state => {
+			const startTime = new Date(state.start_time);
+			return new Date(startTime.getTime() + 900000).toISOString(); // +15 minutes
+		});
 
-        // Calculate min and max prices for color scaling
-        const pricesForScaling = unitPriceData.filter(p => p > 0);
-        const minPrice = Math.min(...pricesForScaling);
-        const maxPrice = Math.max(...pricesForScaling);
+		// Calculate min and max prices for color scaling
+		const pricesForScaling = unitPriceData.filter(p => p > 0);
+		const minPrice = Math.min(...pricesForScaling);
+		const maxPrice = Math.max(...pricesForScaling);
 
-        // Function to get color based on price value using continuous spectrum
-        // Red (high) -> Orange -> Green (low)
-        function getPriceColor(price) {
-            if (price <= 0) return 'rgba(0, 0, 0, 0)'; // transparent for zero
-            
-            // Normalize price to 0-1 range where 0 = minPrice (green), 1 = maxPrice (red)
-            const normalized = (price - minPrice) / (maxPrice - minPrice);
-            
-            // Create smooth spectrum: Red (1) -> Orange (0.5) -> Green (0)
-            let r, g, b;
-            
-            if (normalized < 0.5) {
-                // Green to Orange (0 to 0.5)
-                const t = normalized * 2; // 0 to 1
-                r = Math.round(255 * t); // 0 to 255
-                g = 200; // constant high green
-                b = 0;
-            } else {
-                // Orange to Red (0.5 to 1)
-                const t = (normalized - 0.5) * 2; // 0 to 1
-                r = 255; // constant high red
-                g = Math.round(200 * (1 - t)); // 200 to 0
-                b = 0;
-            }
-            
-            return 'rgba(' + r + ', ' + g + ', ' + b + ', 0.8)';
-        }
+		// Function to get color based on price value using continuous spectrum
+		function getPriceColor(price) {
+			if (price <= 0) return 'rgba(0, 0, 0, 0)';
+			
+			const normalized = (price - minPrice) / (maxPrice - minPrice);
+			let r, g, b;
+			
+			if (normalized < 0.5) {
+				const t = normalized * 2;
+				r = Math.round(255 * t);
+				g = 200;
+				b = 0;
+			} else {
+				const t = (normalized - 0.5) * 2;
+				r = 255;
+				g = Math.round(200 * (1 - t));
+				b = 0;
+			}
+			
+			return 'rgba(' + r + ', ' + g + ', ' + b + ', 0.4)';
+		}
 
-        // Create background colors for each price bar
-        const priceBarColors = unitPriceData.map(price => getPriceColor(price));
+		// Create colors for each price bar
+		const priceBarColors = unitPriceData.map(price => getPriceColor(price));
 
-        // Chart plugin to draw charging slot backgrounds
-        const chargingBackgroundPlugin = {
-            id: 'chargingBackground',
-            afterDatasetsDraw(chart) {
-                const ctx = chart.ctx;
-                const xScale = chart.scales.x;
-                const yScale = chart.scales.y;
-                const chartArea = chart.chartArea;
-                
-                // Light electric blue for charging slots
-                ctx.fillStyle = 'rgba(100, 150, 255, 0.15)';
-                ctx.strokeStyle = 'rgba(100, 150, 255, 0.3)';
-                ctx.lineWidth = 1;
-                
-                // Draw background rectangles for each charging slot
-                systemStates.forEach((state, index) => {
-                    if (state.will_charge) {
-                        // Get pixel positions for this time slot
-                        const xPixel = xScale.getPixelForValue(index);
-                        const nextXPixel = index < systemStates.length - 1 ? 
-                            xScale.getPixelForValue(index + 1) : 
-                            xPixel + (xScale.width / systemStates.length);
-                        
-                        // Draw rectangle from bottom to top of chart
-                        ctx.fillRect(
-                            xPixel,
-                            chartArea.top,
-                            nextXPixel - xPixel,
-                            chartArea.bottom - chartArea.top
-                        );
-                        ctx.strokeRect(
-                            xPixel,
-                            chartArea.top,
-                            nextXPixel - xPixel,
-                            chartArea.bottom - chartArea.top
-                        );
-                    }
-                });
-            }
-        };
+		// Create shapes for charging slot backgrounds and 30-minute interval grid
+		const shapes = [];
+		
+		// Add 30-minute interval grid lines
+		systemStates.forEach((state, index) => {
+			if (index < systemStates.length - 1) {
+				shapes.push({
+					type: 'line',
+					xref: 'x',
+					yref: 'paper',
+					x0: state.start_time,
+					x1: state.start_time,
+					y0: 0,
+					y1: 1,
+					line: {
+						color: 'rgba(200, 200, 200, 0.3)',
+						width: 1,
+						dash: 'dot'
+					},
+					layer: 'below'
+				});
+			}
+		});
 
-        const ctx = document.getElementById('batteryChart').getContext('2d');
-        
-        const chart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [
-                    {
-                        label: 'Battery Power (kW)',
-                        data: batteryPowerData,
-                        borderColor: '#36a2eb',
-                        backgroundColor: 'rgba(54, 162, 235, 0.1)',
-                        borderWidth: 2,
-                        fill: false,
-                        yAxisID: 'y',
-                        tension: 0.1
-                    },
-                    {
-                        label: 'Predicted Usage (kW)',
-                        data: predictedUsageData,
-                        borderColor: '#4bc0c0',
-                        backgroundColor: 'rgba(75, 192, 192, 0.1)',
-                        borderWidth: 2,
-                        fill: false,
-                        yAxisID: 'y',
-                        tension: 0.1
-                    },
-                    {
-                        label: 'Unit Price (p/kWh)',
-                        data: unitPriceData,
-                        type: 'bar',
-                        backgroundColor: priceBarColors,
-                        borderColor: priceBarColors.map(c => c.replace('0.8', '1.0')),
-                        borderWidth: 1,
-                        yAxisID: 'y1'
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: {
-                    mode: 'index',
-                    intersect: false,
-                },
-                plugins: {
-                    title: {
-                        display: true,
-                        text: 'Battery State, Usage Predictions & Charging Schedule'
-                    },
-                    legend: {
-                        display: false // We're using custom legend above
-                    }
-                },
-                scales: {
-                    x: {
-                        display: true,
-                        title: {
-                            display: true,
-                            text: 'Time'
-                        },
-                        ticks: {
-                            maxTicksLimit: 12
-                        }
-                    },
-                    y: {
-                        type: 'linear',
-                        display: true,
-                        position: 'left',
-                        title: {
-                            display: true,
-                            text: 'Power (kW)'
-                        },
-                        grid: {
-                            drawOnChartArea: true,
-                        },
-                    },
-                    y1: {
-                        type: 'linear',
-                        display: true,
-                        position: 'right',
-                        title: {
-                            display: true,
-                            text: 'Unit Price (p/kWh)'
-                        },
-                        grid: {
-                            drawOnChartArea: false,
-                        },
-                    }
-                }
-            },
-            plugins: [chargingBackgroundPlugin]
-        });
+		// Add charging slot backgrounds
+		systemStates.forEach((state, index) => {
+			if (state.will_charge && index < systemStates.length - 1) {
+				shapes.push({
+					type: 'rect',
+					xref: 'x',
+					yref: 'paper',
+					x0: state.start_time,
+					x1: systemStates[index + 1].start_time,
+					y0: 0,
+					y1: 1,
+					fillcolor: 'rgba(100, 150, 255, 0.15)',
+					line: {
+						width: 0
+					},
+					layer: 'below'
+				});
+			}
+		});
 
-        // Auto-refresh every 5 minutes
-        setTimeout(() => {
-            window.location.reload();
-        }, 300000);
-    </script>
+		// Create traces - price bars first, then lines on top
+		const traces = [
+			{
+				name: 'Unit Price (p/kWh)',
+				x: barTimes,
+				y: unitPriceData,
+				type: 'bar',
+				marker: {
+					color: priceBarColors,
+					line: {
+						width: 1,
+						color: priceBarColors.map(c => c.replace('0.8', '1.0'))
+					}
+				},
+				yaxis: 'y2',
+				width: 1800000, // 30 minutes in milliseconds
+				hoverlabel: {
+					bgcolor: 'rgba(255, 255, 255, 0.9)',
+					bordercolor: '#333'
+				}
+			},
+			{
+				name: 'Battery Power (kW)',
+				x: times,
+				y: batteryPowerData,
+				type: 'scatter',
+				mode: 'lines',
+				line: {
+					color: '#0000FF',
+					width: 3
+				},
+				yaxis: 'y'
+			},
+			{
+				name: 'Predicted Usage (kW)',
+				x: times,
+				y: predictedUsageData,
+				type: 'scatter',
+				mode: 'lines',
+				line: {
+					color: '#FFFF00',
+					width: 3
+				},
+				yaxis: 'y'
+			}
+		];
+
+		// Layout configuration
+		const layout = {
+			title: 'Battery State, Usage Predictions & Charging Schedule',
+			showlegend: false,
+			xaxis: {
+				title: 'Time',
+				type: 'date',
+				tickformat: '%b %d\n%H:%M',
+				gridcolor: 'rgba(0, 0, 0, 0.1)',
+				dtick: 7200000, // 2 hours in milliseconds (reduced from 30 minutes)
+				tick0: systemStates.length > 0 ? systemStates[0].start_time : null
+			},
+			yaxis: {
+				title: 'Power (kW)',
+				side: 'left',
+				gridcolor: 'rgba(0, 0, 0, 0.1)'
+			},
+			yaxis2: {
+				title: 'Unit Price (p/kWh)',
+				side: 'right',
+				overlaying: 'y',
+				rangemode: 'tozero',
+				showgrid: false
+			},
+			shapes: shapes,
+			hovermode: 'x unified',
+			hoverdistance: 50,
+			margin: {
+				l: 60,
+				r: 60,
+				t: 80,
+				b: 60
+			}
+		};
+
+		// Configuration
+		const config = {
+			responsive: true,
+			displayModeBar: true,
+			displaylogo: false,
+			modeBarButtonsToRemove: ['lasso2d', 'select2d']
+		};
+
+		// Create the plot
+		Plotly.newPlot('batteryChart', traces, layout, config);
+
+		// Auto-refresh every 5 minutes
+		setTimeout(() => {
+			window.location.reload();
+		}, 300000);
+	</script>
 </body>
 </html>`
 
