@@ -179,9 +179,9 @@ func handler(ctx context.Context) error {
 			}
 		}
 		if len(usageValues) == 0 {
-			error := fmt.Errorf("no usage values found for %s", systemStates[i].StartTime.Format("15:04:05"))
-			log.Error().Err(error).Msg("Error getting average energy usage")
-			return error
+			log.Warn().Msgf("Could not get average energy usage for %s. Using 0.", systemStates[i].StartTime.Format("15:04:05"))
+
+			usageValues = append(usageValues, float64(0))
 		}
 		var sum float64 = 0
 		for _, v := range usageValues {
@@ -294,7 +294,7 @@ func handler(ctx context.Context) error {
 		systemStates[minimumIndex].WillCharge = true
 
 		retries++
-		if retries > 10 {
+		if retries > 20 {
 			log.Info().Msg("Too many retries. Exiting planning phase.")
 			break
 		}

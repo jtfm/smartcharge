@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -64,7 +65,7 @@ func (c *GivenergyClient) ReadUsage(start, end time.Time) ([]EnergyUsage, error)
 		}
 
 		// Fetch usage for this period
-		log.Info().Msgf("Fetching usage data for period %s - %s", start, chunkEnd)
+		log.Info().Msgf("Fetching usage data for period %s - %s", start.Format("2006-01-02"), chunkEnd.Format("2006-01-02"))
 		usage, err := c.fetchUsageForPeriod(start, chunkEnd, grouping)
 		if err != nil {
 			return nil, err
@@ -76,6 +77,26 @@ func (c *GivenergyClient) ReadUsage(start, end time.Time) ([]EnergyUsage, error)
 		// Move start date forward for next iteration
 		start = chunkEnd.AddDate(0, 0, 1)
 	}
+
+	// Sort allUsage by StartTime just in case
+	sort.Slice(allUsage, func(i, j int) bool {
+		return allUsage[i].StartTime.Before(allUsage[j].StartTime)
+	})
+
+	if allUsage[0].StartTime.After(start) {
+		log.Warn().Msgf("Warning: Earliest usage data (%s) is after requested start time (%s)", allUsage[0].StartTime, start)
+	}
+
+	// Add a fake record at the start date from 00:00 to 00:30. Use usage from the first real record.
+	firstRealRecord := allUsage[0]
+	fakeStart := start.Truncate(24 * time.Hour)
+	fakeEnd := fakeStart.Add(30 * time.Minute)
+	fakeRecord := EnergyUsage{
+		StartTime:   fakeStart,
+		EndTime:     fakeEnd,
+		EnergyUsage: firstRealRecord.EnergyUsage,
+	}
+	allUsage = append([]EnergyUsage{fakeRecord}, allUsage...)
 
 	return allUsage, nil
 }

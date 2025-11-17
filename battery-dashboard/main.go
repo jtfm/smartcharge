@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -21,7 +23,62 @@ type DashboardData struct {
 }
 
 func main() {
-	lambda.Start(handler)
+	if isInLambda() {
+		lambda.Start(handler)
+	} else {
+		// Local development - start HTTP server
+		port := ":8080"
+
+		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			// Convert HTTP request to API Gateway format
+			queryParams := make(map[string]string)
+			for key, values := range r.URL.Query() {
+				if len(values) > 0 {
+					queryParams[key] = values[0]
+				}
+			}
+
+			request := events.APIGatewayProxyRequest{
+				QueryStringParameters: queryParams,
+				Headers:               convertHeaders(r.Header),
+			}
+
+			response, err := handler(r.Context(), request)
+			if err != nil {
+				log.Error().Err(err).Msg("Error calling handler")
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte("Internal server error"))
+				return
+			}
+
+			// Write response
+			for key, value := range response.Headers {
+				w.Header().Set(key, value)
+			}
+			w.WriteHeader(response.StatusCode)
+			w.Write([]byte(response.Body))
+		})
+
+		log.Info().Msgf("Starting local server on http://localhost%s", port)
+		if err := http.ListenAndServe(port, nil); err != nil {
+			log.Fatal().Err(err).Msg("Server failed to start")
+		}
+	}
+}
+
+// convertHeaders converts http.Header to map[string]string for API Gateway format
+func convertHeaders(headers http.Header) map[string]string {
+	result := make(map[string]string)
+	for key, values := range headers {
+		if len(values) > 0 {
+			result[key] = values[0]
+		}
+	}
+	return result
+}
+
+func isInLambda() bool {
+	return os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != ""
 }
 
 func handler(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
@@ -225,12 +282,12 @@ func generateHTML(systemStates []dynamodb.SystemState) (string, error) {
                 Predicted Usage (kW)
             </div>
             <div class="legend-item">
-                <span class="legend-color" style="background-color: #ff6384;"></span>
-                Unit Price (p/kWh)
+                <span class="legend-color" style="background: linear-gradient(to right, #00c800, #ffa500, #ff0000); width: 100px;"></span>
+                Unit Price (Green = Cheap, Red = Expensive)
             </div>
             <div class="legend-item">
-                <span class="legend-color" style="background-color: #ffcd56;"></span>
-                Charging Slots
+                <span class="legend-color" style="background-color: rgba(100, 150, 255, 0.4);"></span>
+                Charging Slots (Background)
             </div>
         </div>
         
@@ -261,6 +318,83 @@ func generateHTML(systemStates []dynamodb.SystemState) (string, error) {
         const predictedUsageData = systemStates.map(state => state.predicted_usage || 0);
         const unitPriceData = systemStates.map(state => state.unit_rate || 0);
         const chargeData = systemStates.map(state => state.will_charge ? (state.unit_rate || 0) : null);
+
+        // Calculate min and max prices for color scaling
+        const pricesForScaling = unitPriceData.filter(p => p > 0);
+        const minPrice = Math.min(...pricesForScaling);
+        const maxPrice = Math.max(...pricesForScaling);
+
+        // Function to get color based on price value using continuous spectrum
+        // Red (high) -> Orange -> Green (low)
+        function getPriceColor(price) {
+            if (price <= 0) return 'rgba(0, 0, 0, 0)'; // transparent for zero
+            
+            // Normalize price to 0-1 range where 0 = minPrice (green), 1 = maxPrice (red)
+            const normalized = (price - minPrice) / (maxPrice - minPrice);
+            
+            // Create smooth spectrum: Red (1) -> Orange (0.5) -> Green (0)
+            let r, g, b;
+            
+            if (normalized < 0.5) {
+                // Green to Orange (0 to 0.5)
+                const t = normalized * 2; // 0 to 1
+                r = Math.round(255 * t); // 0 to 255
+                g = 200; // constant high green
+                b = 0;
+            } else {
+                // Orange to Red (0.5 to 1)
+                const t = (normalized - 0.5) * 2; // 0 to 1
+                r = 255; // constant high red
+                g = Math.round(200 * (1 - t)); // 200 to 0
+                b = 0;
+            }
+            
+            return 'rgba(' + r + ', ' + g + ', ' + b + ', 0.8)';
+        }
+
+        // Create background colors for each price bar
+        const priceBarColors = unitPriceData.map(price => getPriceColor(price));
+
+        // Chart plugin to draw charging slot backgrounds
+        const chargingBackgroundPlugin = {
+            id: 'chargingBackground',
+            afterDatasetsDraw(chart) {
+                const ctx = chart.ctx;
+                const xScale = chart.scales.x;
+                const yScale = chart.scales.y;
+                const chartArea = chart.chartArea;
+                
+                // Light electric blue for charging slots
+                ctx.fillStyle = 'rgba(100, 150, 255, 0.15)';
+                ctx.strokeStyle = 'rgba(100, 150, 255, 0.3)';
+                ctx.lineWidth = 1;
+                
+                // Draw background rectangles for each charging slot
+                systemStates.forEach((state, index) => {
+                    if (state.will_charge) {
+                        // Get pixel positions for this time slot
+                        const xPixel = xScale.getPixelForValue(index);
+                        const nextXPixel = index < systemStates.length - 1 ? 
+                            xScale.getPixelForValue(index + 1) : 
+                            xPixel + (xScale.width / systemStates.length);
+                        
+                        // Draw rectangle from bottom to top of chart
+                        ctx.fillRect(
+                            xPixel,
+                            chartArea.top,
+                            nextXPixel - xPixel,
+                            chartArea.bottom - chartArea.top
+                        );
+                        ctx.strokeRect(
+                            xPixel,
+                            chartArea.top,
+                            nextXPixel - xPixel,
+                            chartArea.bottom - chartArea.top
+                        );
+                    }
+                });
+            }
+        };
 
         const ctx = document.getElementById('batteryChart').getContext('2d');
         
@@ -293,18 +427,9 @@ func generateHTML(systemStates []dynamodb.SystemState) (string, error) {
                         label: 'Unit Price (p/kWh)',
                         data: unitPriceData,
                         type: 'bar',
-                        backgroundColor: 'rgba(255, 99, 132, 0.3)',
-                        borderColor: '#ff6384',
+                        backgroundColor: priceBarColors,
+                        borderColor: priceBarColors.map(c => c.replace('0.8', '1.0')),
                         borderWidth: 1,
-                        yAxisID: 'y1'
-                    },
-                    {
-                        label: 'Charging Slots',
-                        data: chargeData,
-                        type: 'bar',
-                        backgroundColor: 'rgba(255, 205, 86, 0.8)',
-                        borderColor: '#ffcd56',
-                        borderWidth: 2,
                         yAxisID: 'y1'
                     }
                 ]
@@ -361,7 +486,8 @@ func generateHTML(systemStates []dynamodb.SystemState) (string, error) {
                         },
                     }
                 }
-            }
+            },
+            plugins: [chargingBackgroundPlugin]
         });
 
         // Auto-refresh every 5 minutes
