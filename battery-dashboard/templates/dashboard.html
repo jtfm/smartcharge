@@ -1,0 +1,59 @@
+{{define "dashboard"}}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Battery Dashboard - SmartCharge</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  {{template "styles"}}
+</head>
+
+<body>
+  <div class="dashboard-wrapper">
+    <div class="navbar">
+      <div class="navbar-tabs">
+        <button class="navbar-tab active" data-tab="dashboard">Dashboard</button>
+        <button class="navbar-tab" data-tab="system-states">System States</button>
+      </div>
+    </div>
+
+    <div class="dashboard-layout">
+      <div class="sidebar">
+        {{template "stats" .}}
+        {{template "legend"}}
+        {{template "timestamp" .}}
+      </div>
+
+      <div class="main-content">
+        <div class="tab-content active" id="dashboard-tab">
+          {{template "chart"}}
+        </div>
+        <div class="tab-content" id="system-states-tab">
+          {{template "system-states-table" .}}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {{template "scripts" .}}
+  <script>
+    // Tab switching functionality
+    document.querySelectorAll('.navbar-tab').forEach(tab => {
+      tab.addEventListener('click', function () {
+        const tabName = this.getAttribute('data-tab');
+
+        // Remove active class from all tabs and content
+        document.querySelectorAll('.navbar-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+        // Add active class to clicked tab and corresponding content
+        this.classList.add('active');
+        document.getElementById(tabName + '-tab').classList.add('active');
+      });
+    });
+  </script>
+</body>
+
+</html>{{end}}

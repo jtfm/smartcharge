@@ -1,0 +1,476 @@
+{{define "system-states-table"}}<div class="states-table-container">
+  <div class="states-controls">
+    <div class="states-filter">
+      <label>Date Range:</label>
+      <div class="date-range-display">
+        <span id="date-range-text">Select dates...</span>
+        <button id="calendar-btn" class="calendar-btn" title="Open calendar">📅</button>
+      </div>
+      <div id="calendar-picker" class="calendar-picker" style="display: none;">
+        <div class="calendar-header">
+          <button id="prev-month-btn" class="month-nav">‹</button>
+          <span id="month-year-display"></span>
+          <button id="next-month-btn" class="month-nav">›</button>
+        </div>
+        <div class="calendar-grid-header">
+          <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
+        </div>
+        <div id="calendar-grid" class="calendar-grid"></div>
+        <div class="calendar-footer">
+          <button id="calendar-apply-btn" class="calendar-action-btn">Apply</button>
+          <button id="calendar-clear-btn" class="calendar-action-btn secondary">Clear</button>
+        </div>
+      </div>
+      <button id="reset-filter-btn" class="filter-btn secondary">Reset</button>
+    </div>
+    <div class="states-info">
+      <span class="states-total">Total Records: <span id="total-records">0</span></span>
+      <span class="states-showing">Showing <span id="showing-start">0</span> - <span id="showing-end">0</span></span>
+    </div>
+  </div>
+
+  <div class="states-table-wrapper">
+    <table class="states-table" id="states-data-table">
+      <thead>
+        <tr>
+          <th class="sortable" data-column="start_time">Start Time <span class="sort-indicator"></span></th>
+          <th class="sortable" data-column="pv_estimate">PV Estimate <span class="sort-indicator"></span></th>
+          <th class="sortable" data-column="predicted_usage">Predicted Usage <span class="sort-indicator"></span></th>
+          <th class="sortable" data-column="predicted_battery_power">Battery Power <span class="sort-indicator"></span>
+          </th>
+          <th class="sortable" data-column="unit_rate">Unit Rate <span class="sort-indicator"></span></th>
+          <th class="sortable" data-column="will_charge">Will Charge <span class="sort-indicator"></span></th>
+        </tr>
+      </thead>
+      <tbody id="states-table-body">
+      </tbody>
+    </table>
+  </div>
+
+  <div class="states-pagination">
+    <div class="pagination-controls">
+      <button id="prev-page-btn" class="pagination-btn">← Previous</button>
+      <span class="pagination-info">Page <span id="current-page">1</span> of <span id="total-pages">1</span></span>
+      <button id="next-page-btn" class="pagination-btn">Next →</button>
+    </div>
+    <div class="page-size-control">
+      <label for="page-size-select">Records per page:</label>
+      <select id="page-size-select" class="page-size-select">
+        <option value="20">20</option>
+        <option value="30">30</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+      </select>
+    </div>
+  </div>
+</div>
+
+<script>
+  // System states table configuration
+  let ROWS_PER_PAGE = 20;
+  let systemStatesData = {{.SystemStatesJSON }};
+  let filteredData = systemStatesData;
+  let currentPage = 1;
+  let sortColumn = 'start_time';
+  let sortDirection = 'asc';
+
+  // Calendar state
+  let calendarStartDate = null;
+  let calendarEndDate = null;
+  let calendarDisplayMonth = new Date();
+
+  // Set default date range (last 30 days)
+  setDefaultDateRange();
+
+  // Initialize table
+  renderTable();
+  setupEventListeners();
+
+  function setDefaultDateRange() {
+    const today = new Date();
+    const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+    
+    calendarStartDate = new Date(thirtyDaysAgo);
+    calendarEndDate = new Date(today);
+    updateDateRangeDisplay();
+  }
+
+  function updateDateRangeDisplay() {
+    if (calendarStartDate) {
+      const startStr = formatDateForDisplay(calendarStartDate);
+      const endStr = calendarEndDate ? formatDateForDisplay(calendarEndDate) : startStr;
+      document.getElementById('date-range-text').textContent = `${startStr} to ${endStr}`;
+    }
+  }
+
+  function formatDateForDisplay(date) {
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${month}/${day}/${date.getFullYear()}`;
+  }
+
+  function formatDateForAPI(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  function renderCalendar() {
+    const year = calendarDisplayMonth.getFullYear();
+    const month = calendarDisplayMonth.getMonth();
+    
+    // Update header
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                       'July', 'August', 'September', 'October', 'November', 'December'];
+    document.getElementById('month-year-display').textContent = `${monthNames[month]} ${year}`;
+    
+    // Get first day of month and number of days
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const daysInPrevMonth = new Date(year, month, 0).getDate();
+    
+    const grid = document.getElementById('calendar-grid');
+    grid.innerHTML = '';
+    
+    // Previous month's days
+    for (let i = firstDay - 1; i >= 0; i--) {
+      const day = daysInPrevMonth - i;
+      const dayEl = document.createElement('div');
+      dayEl.className = 'calendar-day other-month';
+      dayEl.textContent = day;
+      grid.appendChild(dayEl);
+    }
+    
+    // Current month's days
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dayEl = document.createElement('div');
+      dayEl.className = 'calendar-day';
+      dayEl.textContent = day;
+      
+      const currentDate = new Date(year, month, day);
+      const dateStr = formatDateForAPI(currentDate);
+      dayEl.dataset.date = dateStr;
+      
+      // Check if date is in range
+      if (calendarStartDate && calendarEndDate) {
+        if (currentDate >= calendarStartDate && currentDate <= calendarEndDate) {
+          dayEl.classList.add('in-range');
+          if (dateStr === formatDateForAPI(calendarStartDate) || dateStr === formatDateForAPI(calendarEndDate)) {
+            dayEl.classList.add('range-end');
+          }
+        }
+      } else if (calendarStartDate && dateStr === formatDateForAPI(calendarStartDate)) {
+        dayEl.classList.add('range-end');
+      }
+      
+      dayEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        selectDateInCalendar(currentDate, dayEl);
+      });
+      grid.appendChild(dayEl);
+    }
+    
+    // Next month's days
+    const totalCells = grid.children.length;
+    const remainingCells = 42 - totalCells; // 6 weeks * 7 days
+    for (let day = 1; day <= remainingCells; day++) {
+      const dayEl = document.createElement('div');
+      dayEl.className = 'calendar-day other-month';
+      dayEl.textContent = day;
+      grid.appendChild(dayEl);
+    }
+  }
+
+  function selectDateInCalendar(date, dayEl) {
+    if (!calendarStartDate) {
+      // First date selected
+      calendarStartDate = new Date(date);
+      calendarEndDate = null;
+    } else if (!calendarEndDate) {
+      // Second date selected
+      if (date < calendarStartDate) {
+        // Swap if end date is before start date
+        calendarEndDate = calendarStartDate;
+        calendarStartDate = new Date(date);
+      } else {
+        calendarEndDate = new Date(date);
+      }
+    } else {
+      // Reset: start new selection
+      calendarStartDate = new Date(date);
+      calendarEndDate = null;
+    }
+    
+    renderCalendar();
+  }
+
+  function setupEventListeners() {
+    // Calendar button
+    document.getElementById('calendar-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const picker = document.getElementById('calendar-picker');
+      picker.style.display = picker.style.display === 'none' ? 'block' : 'none';
+      if (picker.style.display === 'block') {
+        renderCalendar();
+      }
+    });
+    
+    // Month navigation
+    document.getElementById('prev-month-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      calendarDisplayMonth.setMonth(calendarDisplayMonth.getMonth() - 1);
+      renderCalendar();
+    });
+    
+    document.getElementById('next-month-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      calendarDisplayMonth.setMonth(calendarDisplayMonth.getMonth() + 1);
+      renderCalendar();
+    });
+    
+    // Calendar apply/clear
+    document.getElementById('calendar-apply-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      document.getElementById('calendar-picker').style.display = 'none';
+      updateDateRangeDisplay();
+      applyDateFilter();  // Apply the filter when calendar apply is clicked
+    });
+    
+    document.getElementById('calendar-clear-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      calendarStartDate = null;
+      calendarEndDate = null;
+      document.getElementById('date-range-text').textContent = 'Select dates...';
+      renderCalendar();
+    });
+    
+    // Close calendar when clicking outside (but not on the calendar itself)
+    document.addEventListener('click', (e) => {
+      const picker = document.getElementById('calendar-picker');
+      const calendarBtn = document.getElementById('calendar-btn');
+      const statesFilter = document.querySelector('.states-filter');
+      
+      // Close if clicked outside the entire filter area
+      if (!statesFilter.contains(e.target)) {
+        picker.style.display = 'none';
+      }
+    });
+    
+    // Reset filter button
+    document.getElementById('reset-filter-btn').addEventListener('click', resetFilter);
+
+    // Column header click for sorting
+    document.querySelectorAll('.states-table th.sortable').forEach(header => {
+      header.addEventListener('click', function () {
+        const column = this.getAttribute('data-column');
+        if (sortColumn === column) {
+          sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortColumn = column;
+          sortDirection = 'asc';
+        }
+        currentPage = 1;
+        renderTable();
+      });
+    });
+
+    // Pagination buttons
+    document.getElementById('prev-page-btn').addEventListener('click', () => {
+      if (currentPage > 1) {
+        currentPage--;
+        renderTable();
+      }
+    });
+
+    document.getElementById('next-page-btn').addEventListener('click', () => {
+      const totalPages = Math.ceil(filteredData.length / ROWS_PER_PAGE);
+      if (currentPage < totalPages) {
+        currentPage++;
+        renderTable();
+      }
+    });
+
+    // Page size select
+    document.getElementById('page-size-select').addEventListener('change', (e) => {
+      const newPageSize = parseInt(e.target.value);
+      if (newPageSize >= 20 && newPageSize <= 100) {
+        ROWS_PER_PAGE = newPageSize;
+        currentPage = 1;  // Reset to first page when changing page size
+        renderTable();
+      }
+    });
+
+    // Set default page size select value
+    document.getElementById('page-size-select').value = ROWS_PER_PAGE;
+  }
+
+  function applyDateFilter() {
+    if (!calendarStartDate) {
+      alert('Please select a date range using the calendar');
+      return;
+    }
+
+    const endDate = calendarEndDate || calendarStartDate;
+    const fromDateStr = formatDateForAPI(calendarStartDate);
+    const toDateStr = formatDateForAPI(endDate);
+
+    // Fetch all pages of data for the date range
+    fetchAllPagesForDateRange(fromDateStr, toDateStr);
+  }
+
+  function fetchAllPagesForDateRange(fromDateStr, toDateStr) {
+    let allRecords = [];
+
+    function fetchPage(pageNum) {
+      const params = new URLSearchParams({
+        format: 'json',
+        fromDate: fromDateStr,
+        toDate: toDateStr,
+        page: pageNum,
+        pageSize: 1000  // Use max page size to minimize requests
+      });
+
+      return fetch(`?${params.toString()}`)
+        .then(response => response.json())
+        .then(data => {
+          if (data.system_states) {
+            allRecords = allRecords.concat(data.system_states);
+          }
+
+          // Check if there are more pages
+          if (data.pagination && data.pagination.hasNextPage) {
+            return fetchPage(pageNum + 1);
+          }
+
+          return allRecords;
+        });
+    }
+
+    fetchPage(1)
+      .then(records => {
+        systemStatesData = records;
+        filteredData = systemStatesData;
+        currentPage = 1;
+        sortColumn = 'start_time';
+        sortDirection = 'asc';
+        renderTable();
+      })
+      .catch(error => {
+        console.error('Error fetching data:', error);
+        alert('Failed to fetch data for selected date range');
+      });
+  }
+
+  function resetFilter() {
+    // Reload with default 30-day range
+    const toDate = new Date();
+    const fromDate = new Date(toDate.getTime() - 30 * 24 * 60 * 60 * 1000);
+    
+    calendarStartDate = fromDate;
+    calendarEndDate = toDate;
+    updateDateRangeDisplay();
+
+    const fromDateStr = formatDateForAPI(fromDate);
+    const toDateStr = formatDateForAPI(toDate);
+
+    // Fetch all pages for default range
+    fetchAllPagesForDateRange(fromDateStr, toDateStr);
+  }
+
+  function formatDateForAPI(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  function sortData() {
+    filteredData.sort((a, b) => {
+      let aVal = a[sortColumn];
+      let bVal = b[sortColumn];
+
+      // Handle null/undefined
+      if (aVal == null && bVal == null) return 0;
+      if (aVal == null) return sortDirection === 'asc' ? 1 : -1;
+      if (bVal == null) return sortDirection === 'asc' ? -1 : 1;
+
+      // Convert to comparable values
+      if (sortColumn === 'start_time') {
+        aVal = new Date(aVal).getTime();
+        bVal = new Date(bVal).getTime();
+      } else if (typeof aVal === 'number' && typeof bVal === 'number') {
+        // Already numbers
+      } else if (typeof aVal === 'boolean' && typeof bVal === 'boolean') {
+        // Boolean comparison
+      }
+
+      // Comparison
+      if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }
+
+  function renderTable() {
+    sortData();
+
+    const totalPages = Math.ceil(filteredData.length / ROWS_PER_PAGE);
+    const startIndex = (currentPage - 1) * ROWS_PER_PAGE;
+    const endIndex = Math.min(startIndex + ROWS_PER_PAGE, filteredData.length);
+    const pageData = filteredData.slice(startIndex, endIndex);
+
+    // Update info
+    document.getElementById('total-records').textContent = filteredData.length;
+    document.getElementById('showing-start').textContent = filteredData.length === 0 ? 0 : startIndex + 1;
+    document.getElementById('showing-end').textContent = endIndex;
+    document.getElementById('current-page').textContent = currentPage;
+    document.getElementById('total-pages').textContent = totalPages;
+
+    // Update sort indicators
+    document.querySelectorAll('.states-table th.sortable').forEach(header => {
+      const column = header.getAttribute('data-column');
+      const indicator = header.querySelector('.sort-indicator');
+      if (column === sortColumn) {
+        indicator.textContent = sortDirection === 'asc' ? ' ↑' : ' ↓';
+        header.classList.add('sorted');
+      } else {
+        indicator.textContent = '';
+        header.classList.remove('sorted');
+      }
+    });
+
+    // Update pagination buttons
+    document.getElementById('prev-page-btn').disabled = currentPage === 1;
+    document.getElementById('next-page-btn').disabled = currentPage >= totalPages;
+
+    // Render table rows
+    const tbody = document.getElementById('states-table-body');
+    tbody.innerHTML = '';
+
+    if (pageData.length === 0) {
+      const emptyRow = document.createElement('tr');
+      emptyRow.innerHTML = '<td colspan="6" style="text-align: center; padding: 20px; color: #999;">No data available</td>';
+      tbody.appendChild(emptyRow);
+      return;
+    }
+
+    pageData.forEach(row => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${formatISO(row.start_time)}</td>
+        <td>${row.pv_estimate != null ? row.pv_estimate.toFixed(2) : '-'}</td>
+        <td>${row.predicted_usage != null ? row.predicted_usage.toFixed(2) : '-'}</td>
+        <td>${row.predicted_battery_power != null ? row.predicted_battery_power.toFixed(2) : '-'}</td>
+        <td>${row.unit_rate != null ? row.unit_rate.toFixed(2) : '-'}</td>
+        <td>${row.will_charge ? '<span style="color: #5B7FFF; font-weight: bold;">Yes</span>' : '<span style="color: #999;">No</span>'}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function formatISO(dateString) {
+    const date = new Date(dateString);
+    return date.toISOString();
+  }
+</script>{{end}}

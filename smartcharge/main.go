@@ -238,12 +238,12 @@ func handler(ctx context.Context) error {
 			previousPredictedBatteryPower := *systemStates[i-1].PredictedBatteryPower
 			predictedBatteryPower := previousPredictedBatteryPower + previousPvEstimate - previousPredictedUsage
 
-			if predictedBatteryPower > batteryCapacityInKWh {
-				predictedBatteryPower = batteryCapacityInKWh
-			}
-
 			if systemStates[i-1].WillCharge {
 				predictedBatteryPower += grid30mChargeCapacity
+			}
+
+			if predictedBatteryPower > batteryCapacityInKWh {
+				predictedBatteryPower = batteryCapacityInKWh
 			}
 
 			systemStates[i].PredictedBatteryPower = &predictedBatteryPower

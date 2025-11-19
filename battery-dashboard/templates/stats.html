@@ -1,0 +1,18 @@
+{{define "stats"}}<div class="stats">
+  <div class="stat-card">
+    <div class="stat-value">{{.DataPoints}}</div>
+    <div class="stat-label">Data Points</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{.ChargeSlots}}</div>
+    <div class="stat-label">Planned Charge Slots</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{.MaxPrice}}p</div>
+    <div class="stat-label">Max Unit Price</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{.MinPrice}}p</div>
+    <div class="stat-label">Min Unit Price</div>
+  </div>
+</div>{{end}}

@@ -1,0 +1,418 @@
+{{define "scripts"}}
+<script>
+  const systemStates = {{.SystemStatesJSON }};
+
+  // Calculate min and max prices for color scaling
+  const pricesForScaling = systemStates.map(s => s.unit_rate || 0).filter(p => p > 0);
+  const minPrice = Math.min(...pricesForScaling);
+  const maxPrice = Math.max(...pricesForScaling);
+
+  // Create D3 visualization
+  createD3Chart(systemStates, minPrice, maxPrice);
+
+  function createD3Chart(data, minPrice, maxPrice) {
+    // Setup dimensions
+    const container = document.getElementById('batteryChartD3');
+    const margin = { top: 20, right: 60, bottom: 60, left: 60 };
+    const width = container.clientWidth - margin.left - margin.right;
+    const height = container.clientHeight - margin.top - margin.bottom;
+
+    // Create SVG
+    const svg = d3.select('#batteryChartD3')
+      .append('svg')
+      .attr('viewBox', '0 0 ' + (width + margin.left + margin.right) + ' ' + (height + margin.top + margin.bottom))
+      .attr('preserveAspectRatio', 'xMidYMid meet')
+      .append('g')
+      .attr('transform', 'translate(' + margin.left + ',' + margin.top + ')');
+
+    // Parse dates and prepare data
+    const parseTime = d3.isoParse;
+    data.forEach(d => {
+      d.date = parseTime(d.start_time);
+      d.batteryPower = d.predicted_battery_power || 0;
+      d.usage = d.predicted_usage || 0;
+      d.price = d.unit_rate || 0;
+    });
+
+    // Calculate domain extents
+    const timeExtent = d3.extent(data, d => d.date);
+    const powerMax = d3.max(data, d => Math.max(d.batteryPower, d.usage)) || 10;
+    const priceMax = d3.max(data, d => d.price) || 50;
+
+    // Create scales
+    const xScale = d3.scaleTime()
+      .domain(timeExtent)
+      .range([0, width]);
+
+    const yScaleLeft = d3.scaleLinear()
+      .domain([0, powerMax * 1.1])
+      .range([height, 0]);
+
+    const yScaleRight = d3.scaleLinear()
+      .domain([0, priceMax * 1.1])
+      .range([height, 0]);
+
+    // Draw grid lines (30-minute intervals)
+    svg.append('g')
+      .attr('class', 'grid-lines')
+      .selectAll('line')
+      .data(data.slice(0, -1))
+      .enter()
+      .append('line')
+      .attr('x1', d => xScale(d.date))
+      .attr('x2', d => xScale(d.date))
+      .attr('y1', 0)
+      .attr('y2', height)
+      .attr('stroke', 'rgba(200, 200, 200, 0.3)')
+      .attr('stroke-width', 1)
+      .attr('stroke-dasharray', '3,3');
+
+    // Draw day dividers (midnight lines)
+    const dayDividers = [];
+    const startDate = new Date(data[0].date);
+    const endDate = new Date(data[data.length - 1].date);
+
+    // Find all midnights between start and end
+    const currentMidnight = new Date(startDate);
+    currentMidnight.setHours(24, 0, 0, 0);
+
+    while (currentMidnight <= endDate) {
+      dayDividers.push(new Date(currentMidnight));
+      currentMidnight.setDate(currentMidnight.getDate() + 1);
+    }
+
+    svg.append('g')
+      .attr('class', 'day-dividers')
+      .selectAll('line')
+      .data(dayDividers)
+      .enter()
+      .append('line')
+      .attr('x1', d => xScale(d))
+      .attr('x2', d => xScale(d))
+      .attr('y1', 0)
+      .attr('y2', height)
+      .attr('stroke', '#999')
+      .attr('stroke-width', 1.5)
+      .attr('opacity', 0.6);
+
+    // Draw charging slot backgrounds
+    const chargingSlots = data.filter((d, i) => d.will_charge && i < data.length - 1);
+
+    // Define pastel colors
+    const colors = {
+      battery: { normal: '#9BB9FF', bright: '#5B7FFF' },
+      usage: { normal: '#FFE9A8', bright: '#FFD740' },
+      price: { normal: '#FFB3B3', bright: '#FF8080' },
+      charging: { normal: 'rgba(155, 185, 255, 0.15)', bright: 'rgba(155, 185, 255, 0.3)' }
+    };
+
+    svg.append('g')
+      .attr('class', 'charging-slots')
+      .selectAll('rect')
+      .data(chargingSlots)
+      .enter()
+      .append('rect')
+      .attr('x', (d, i) => xScale(d.date))
+      .attr('y', 0)
+      .attr('width', (d, i) => {
+        const idx = data.indexOf(d);
+        if (idx < data.length - 1) {
+          return xScale(data[idx + 1].date) - xScale(d.date);
+        }
+        return 30 * 60 * 1000 / (timeExtent[1] - timeExtent[0]) * width; // 30 min
+      })
+      .attr('height', height)
+      .attr('fill', colors.charging.normal);
+
+    // Line generators
+    const batteryLine = d3.line()
+      .x(d => xScale(d.date))
+      .y(d => yScaleLeft(d.batteryPower))
+      .curve(d3.curveLinear);
+
+    const usageLine = d3.line()
+      .x(d => xScale(d.date))
+      .y(d => yScaleLeft(d.usage))
+      .curve(d3.curveLinear);
+
+    const priceLine = d3.line()
+      .x(d => xScale(d.date))
+      .y(d => yScaleRight(d.price))
+      .curve(d3.curveLinear);
+
+    // Draw battery power line
+    svg.append('path')
+      .datum(data)
+      .attr('class', 'battery-line')
+      .attr('fill', 'none')
+      .attr('stroke', colors.battery.normal)
+      .attr('stroke-width', 3)
+      .attr('d', batteryLine);
+
+    // Draw usage line
+    svg.append('path')
+      .datum(data)
+      .attr('class', 'usage-line')
+      .attr('fill', 'none')
+      .attr('stroke', colors.usage.normal)
+      .attr('stroke-width', 3)
+      .attr('d', usageLine);
+
+    // Draw price line
+    svg.append('path')
+      .datum(data)
+      .attr('class', 'price-line')
+      .attr('fill', 'none')
+      .attr('stroke', colors.price.normal)
+      .attr('stroke-width', 2)
+      .attr('stroke-dasharray', '5,5')
+      .attr('d', priceLine);
+
+    // Add axes
+    const xAxis = d3.axisBottom(xScale)
+      .ticks(d3.timeHour.every(2))
+      .tickFormat(d3.timeFormat('%b %d\n%H:%M'));
+
+    const yAxisLeft = d3.axisLeft(yScaleLeft)
+      .ticks(8);
+
+    const yAxisRight = d3.axisRight(yScaleRight)
+      .ticks(8);
+
+    // X-axis
+    svg.append('g')
+      .attr('class', 'x-axis')
+      .attr('transform', 'translate(0,' + height + ')')
+      .call(xAxis)
+      .selectAll('text')
+      .style('text-anchor', 'middle');
+
+    // Left Y-axis
+    svg.append('g')
+      .attr('class', 'y-axis-left')
+      .call(yAxisLeft);
+
+    // Right Y-axis
+    svg.append('g')
+      .attr('class', 'y-axis-right')
+      .attr('transform', 'translate(' + width + ',0)')
+      .call(yAxisRight);
+
+    // Axis labels
+    svg.append('text')
+      .attr('class', 'axis-label')
+      .attr('text-anchor', 'middle')
+      .attr('x', width / 2)
+      .attr('y', height + 50)
+      .text('Time');
+
+    svg.append('text')
+      .attr('class', 'axis-label')
+      .attr('text-anchor', 'middle')
+      .attr('transform', 'rotate(-90)')
+      .attr('y', -45)
+      .attr('x', -height / 2)
+      .text('Power (kW)');
+
+    svg.append('text')
+      .attr('class', 'axis-label')
+      .attr('text-anchor', 'middle')
+      .attr('transform', 'rotate(-90)')
+      .attr('y', width + 45)
+      .attr('x', -height / 2)
+      .text('Unit Price (p/kWh)');
+
+    // Tooltip
+    const tooltip = d3.select('#d3-tooltip');
+
+    // Bisector for finding nearest data point
+    const bisect = d3.bisector(d => d.date).left;
+
+    // Track highlighted points
+    let highlightedPoints = {
+      battery: null,
+      usage: null,
+      price: null
+    };
+
+    // Create groups for highlighted points
+    const highlightGroup = svg.append('g').attr('class', 'highlights');
+
+    // Distance calculation function
+    function getDistanceToLine(mouseX, mouseY, linePoints, scale) {
+      let minDistance = Infinity;
+      let nearestPoint = null;
+      let nearestIndex = null;
+
+      for (let i = 0; i < linePoints.length; i++) {
+        const d = linePoints[i];
+        const px = scale.x(d.date);
+        const py = scale.y;
+        const distance = Math.sqrt(Math.pow(mouseX - px, 2) + Math.pow(mouseY - py, 2));
+
+        if (distance < minDistance) {
+          minDistance = distance;
+          nearestPoint = d;
+          nearestIndex = i;
+        }
+      }
+
+      return { distance: minDistance, point: nearestPoint, index: nearestIndex };
+    }
+
+    // Enhanced overlay for mouse events
+    svg.append('rect')
+      .attr('class', 'overlay')
+      .attr('width', width)
+      .attr('height', height)
+      .style('fill', 'none')
+      .style('pointer-events', 'all')
+      .on('mousemove', function (event) {
+        const [mouseX, mouseY] = d3.pointer(event);
+        const x0 = xScale.invert(mouseX);
+        const i = bisect(data, x0, 1);
+
+        if (i < data.length && i > 0) {
+          const d0 = data[i - 1];
+          const d1 = data[i];
+          const closestData = x0 - d0.date > d1.date - x0 ? d1 : d0;
+          const closestIndex = x0 - d0.date > d1.date - x0 ? i : i - 1;
+
+          // Calculate distances to each line
+          const batteryY = yScaleLeft(closestData.batteryPower);
+          const usageY = yScaleLeft(closestData.usage);
+          const priceY = yScaleRight(closestData.price);
+
+          const batteryDist = Math.abs(mouseY - batteryY);
+          const usageDist = Math.abs(mouseY - usageY);
+          const priceDist = Math.abs(mouseY - priceY);
+
+          // Define proximity threshold (in pixels)
+          const proximityThreshold = 30;
+
+          // Find closest line(s) within threshold
+          const distances = [
+            { line: 'battery', dist: batteryDist, y: batteryY, color: colors.battery.normal, brightColor: colors.battery.bright },
+            { line: 'usage', dist: usageDist, y: usageY, color: colors.usage.normal, brightColor: colors.usage.bright },
+            { line: 'price', dist: priceDist, y: priceY, color: colors.price.normal, brightColor: colors.price.bright }
+          ];
+
+          const closestLine = distances.reduce((a, b) => a.dist < b.dist ? a : b);
+
+          // Only show tooltip if within threshold
+          if (closestLine.dist <= proximityThreshold) {
+            // Brighten the closest line
+            svg.select('.battery-line').transition().duration(150).attr('stroke', closestLine.line === 'battery' ? closestLine.brightColor : colors.battery.normal).attr('stroke-width', closestLine.line === 'battery' ? 4 : 3);
+            svg.select('.usage-line').transition().duration(150).attr('stroke', closestLine.line === 'usage' ? closestLine.brightColor : colors.usage.normal).attr('stroke-width', closestLine.line === 'usage' ? 4 : 3);
+            svg.select('.price-line').transition().duration(150).attr('stroke', closestLine.line === 'price' ? closestLine.brightColor : colors.price.normal).attr('stroke-width', closestLine.line === 'price' ? 3 : 2);
+            // Format tooltip content based on closest line
+            const timeFormat = d3.timeFormat('%b %d, %H:%M');
+            let tooltipContent = '<div class="tooltip-time">' + timeFormat(closestData.date) + '</div>';
+
+            switch (closestLine.line) {
+              case 'battery':
+                tooltipContent += '<div class="tooltip-item" style="color: ' + colors.battery.bright + '; font-weight: bold;">Battery Power</div>';
+                tooltipContent += '<div class="tooltip-item">' + closestData.batteryPower.toFixed(2) + ' kW</div>';
+                break;
+              case 'usage':
+                tooltipContent += '<div class="tooltip-item" style="color: ' + colors.usage.bright + '; font-weight: bold;">Predicted Usage</div>';
+                tooltipContent += '<div class="tooltip-item">' + closestData.usage.toFixed(2) + ' kW</div>';
+                break;
+              case 'price':
+                tooltipContent += '<div class="tooltip-item" style="color: ' + colors.price.bright + '; font-weight: bold;">Unit Price</div>';
+                tooltipContent += '<div class="tooltip-item">' + closestData.price.toFixed(2) + ' p/kWh</div>';
+                break;
+            }
+
+            if (closestData.will_charge) {
+              tooltipContent += '<div class="tooltip-item" style="color: ' + colors.battery.bright + '; font-weight: bold; margin-top: 5px;">⚡ Charging</div>';
+            }
+
+            // Get the chart container's position on the page
+            const chartRect = container.getBoundingClientRect();
+            const containerPageX = chartRect.left + window.scrollX;
+            const containerPageY = chartRect.top + window.scrollY;
+
+            // Calculate tooltip position relative to the container
+            const tooltipX = event.pageX - containerPageX + 5;
+            const tooltipY = event.pageY - containerPageY - 5;
+
+            tooltip
+              .html(tooltipContent)
+              .style('display', 'block')
+              .style('left', tooltipX + 'px')
+              .style('top', tooltipY + 'px');
+
+            // Remove all previous highlights
+            highlightGroup.selectAll('circle').remove();
+
+            // Draw highlight point on closest line
+            highlightGroup.append('circle')
+              .attr('cx', xScale(closestData.date))
+              .attr('cy', closestLine.y)
+              .attr('r', 5)
+              .attr('fill', closestLine.brightColor)
+              .attr('stroke', 'white')
+              .attr('stroke-width', 2)
+              .attr('opacity', 0.9);
+
+            // Add charging overlay fade when hovering over charging periods
+            if (closestData.will_charge) {
+              svg.selectAll('.charging-slots rect')
+                .transition()
+                .duration(100)
+                .attr('fill', colors.charging.bright);
+            } else {
+              svg.selectAll('.charging-slots rect')
+                .transition()
+                .duration(100)
+                .attr('fill', colors.charging.normal);
+            }
+          } else {
+            tooltip.style('display', 'none');
+            highlightGroup.selectAll('circle').remove();
+            // Reset lines to normal colors
+            svg.select('.battery-line').transition().duration(150).attr('stroke', colors.battery.normal).attr('stroke-width', 3);
+            svg.select('.usage-line').transition().duration(150).attr('stroke', colors.usage.normal).attr('stroke-width', 3);
+            svg.select('.price-line').transition().duration(150).attr('stroke', colors.price.normal).attr('stroke-width', 2);
+            svg.selectAll('.charging-slots rect')
+              .transition()
+              .duration(100)
+              .attr('fill', colors.charging.normal);
+          }
+        }
+      })
+      .on('mouseout', function () {
+        tooltip.style('display', 'none');
+        highlightGroup.selectAll('circle').remove();
+        // Reset all lines to normal colors
+        svg.select('.battery-line').transition().duration(150).attr('stroke', colors.battery.normal).attr('stroke-width', 3);
+        svg.select('.usage-line').transition().duration(150).attr('stroke', colors.usage.normal).attr('stroke-width', 3);
+        svg.select('.price-line').transition().duration(150).attr('stroke', colors.price.normal).attr('stroke-width', 2);
+        svg.selectAll('.charging-slots rect')
+          .transition()
+          .duration(100)
+          .attr('fill', colors.charging.normal);
+      });
+
+    // Styling for axes
+    svg.selectAll('.axis-label')
+      .style('font-size', '12px')
+      .style('fill', '#666');
+
+    svg.selectAll('.x-axis line, .y-axis-left line, .y-axis-right line')
+      .style('stroke', 'rgba(0, 0, 0, 0.1)');
+
+    svg.selectAll('.x-axis path, .y-axis-left path, .y-axis-right path')
+      .style('stroke', '#333');
+
+    svg.selectAll('.x-axis text, .y-axis-left text, .y-axis-right text')
+      .style('font-size', '11px')
+      .style('fill', '#333');
+  }
+
+  // Auto-refresh every 5 minutes
+  setTimeout(() => {
+    window.location.reload();
+  }, 300000);
+</script>{{end}}

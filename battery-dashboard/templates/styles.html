@@ -1,0 +1,684 @@
+{{define "styles"}}<style>
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f5f5f5;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .dashboard-wrapper {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    padding: 0;
+    gap: 0;
+  }
+
+  .navbar {
+    background: white;
+    border-bottom: 1px solid #ddd;
+    padding: 15px 20px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    flex-shrink: 0;
+  }
+
+  .navbar-title {
+    color: #333;
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+    display: none;
+  }
+
+  .navbar-tabs {
+    display: flex;
+    gap: 10px;
+  }
+
+  .navbar-tab {
+    padding: 8px 16px;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    color: #666;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+  }
+
+  .navbar-tab:hover {
+    color: #333;
+    border-bottom-color: #ddd;
+  }
+
+  .navbar-tab.active {
+    color: #5B7FFF;
+    border-bottom-color: #5B7FFF;
+  }
+
+  h1 {
+    color: #333;
+    text-align: center;
+    margin: 0;
+    flex-shrink: 0;
+  }
+
+  .dashboard-layout {
+    display: flex;
+    gap: 20px;
+    flex: 1;
+    overflow: hidden;
+    padding: 20px;
+  }
+
+  .sidebar {
+    width: 280px;
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+
+  .main-content {
+    flex: 1;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    padding: 20px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .chart-container {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+  }
+
+  #batteryChartD3 {
+    width: 100%;
+    height: 100%;
+  }
+
+  #batteryChartD3 svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .d3-tooltip {
+    position: absolute;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 10px;
+    pointer-events: none;
+    font-size: 12px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
+    display: none;
+    white-space: nowrap;
+    transform: translate(-50%, -100%);
+  }
+
+  .d3-tooltip .tooltip-time {
+    font-weight: bold;
+    margin-bottom: 5px;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 5px;
+  }
+
+  .d3-tooltip .tooltip-item {
+    margin: 3px 0;
+  }
+
+  .stats {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .stat-card {
+    background: #f8f9fa;
+    padding: 12px;
+    border-radius: 6px;
+    border-left: 4px solid #9BB9FF;
+  }
+
+  .stat-value {
+    font-size: 18px;
+    font-weight: bold;
+    color: #5B7FFF;
+  }
+
+  .stat-label {
+    color: #666;
+    font-size: 12px;
+    margin-top: 2px;
+  }
+
+  .legend {
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    margin-bottom: 20px;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 12px;
+  }
+
+  .legend-color {
+    display: inline-block;
+    width: 15px;
+    height: 12px;
+    margin-right: 8px;
+    flex-shrink: 0;
+    border-radius: 2px;
+  }
+
+  .timestamp {
+    text-align: center;
+    color: #666;
+    font-size: 11px;
+    margin-top: auto;
+    padding-top: 10px;
+    border-top: 1px solid #eee;
+  }
+
+  .tab-content {
+    display: none;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .tab-content.active {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .placeholder-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    color: #999;
+    font-size: 18px;
+    background: #fafafa;
+    border-radius: 6px;
+  }
+
+  /* System States Table Styles */
+  .states-table-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    gap: 15px;
+    padding: 20px;
+  }
+
+  .states-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    flex-shrink: 0;
+  }
+
+  .states-filter {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border: 1px solid #e0e0e0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  }
+
+  .states-filter label {
+    font-size: 13px;
+    color: #333;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .date-range-wrapper {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 12px;
+    background: white;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+  }
+
+  .date-input {
+    padding: 6px 8px;
+    border: none;
+    border-radius: 3px;
+    font-size: 13px;
+    background: transparent;
+    cursor: pointer;
+    min-width: 130px;
+    font-family: inherit;
+  }
+
+  .date-input:focus {
+    outline: none;
+    background: #f0f4ff;
+  }
+
+  .date-range-separator {
+    font-size: 12px;
+    color: #999;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .date-range-display {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 12px;
+    background: white;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+    min-width: 250px;
+  }
+
+  #date-range-text {
+    font-size: 13px;
+    color: #333;
+    flex: 1;
+  }
+
+  .calendar-btn {
+    background: none;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    padding: 2px 4px;
+    transition: transform 0.2s;
+  }
+
+  .calendar-btn:hover {
+    transform: scale(1.2);
+  }
+
+  .calendar-picker {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    padding: 12px;
+    z-index: 1000;
+    min-width: 320px;
+    margin-top: 8px;
+  }
+
+  .calendar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    gap: 8px;
+  }
+
+  #month-year-display {
+    font-weight: 600;
+    color: #333;
+    font-size: 14px;
+    flex: 1;
+    text-align: center;
+  }
+
+  .month-nav {
+    background: none;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    color: #5B7FFF;
+    padding: 4px 8px;
+    transition: background 0.2s;
+    border-radius: 4px;
+  }
+
+  .month-nav:hover {
+    background: #f0f4ff;
+  }
+
+  .calendar-grid-header {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+    margin-bottom: 6px;
+    text-align: center;
+  }
+
+  .calendar-grid-header div {
+    font-size: 11px;
+    font-weight: 600;
+    color: #666;
+    padding: 6px 0;
+  }
+
+  .calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+    margin-bottom: 12px;
+  }
+
+  .calendar-day {
+    padding: 8px 4px;
+    text-align: center;
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    transition: all 0.2s;
+    color: #333;
+    background: white;
+  }
+
+  .calendar-day:hover:not(.other-month) {
+    background: #e8ecff;
+    border-color: #5B7FFF;
+  }
+
+  .calendar-day.other-month {
+    color: #ccc;
+    cursor: default;
+  }
+
+  .calendar-day.in-range {
+    background: #d9e4ff;
+    color: #333;
+  }
+
+  .calendar-day.range-end {
+    background: #5B7FFF;
+    color: white;
+    font-weight: 600;
+    border-color: #5B7FFF;
+  }
+
+  .calendar-footer {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+
+  .calendar-action-btn {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .calendar-action-btn:not(.secondary) {
+    background: #5B7FFF;
+    color: white;
+  }
+
+  .calendar-action-btn:not(.secondary):hover {
+    background: #4561e8;
+  }
+
+  .calendar-action-btn.secondary {
+    background: #ddd;
+    color: #333;
+  }
+
+  .calendar-action-btn.secondary:hover {
+    background: #ccc;
+  }
+
+  .states-filter {
+    position: relative;
+  }
+
+  .filter-btn {
+    padding: 6px 14px;
+    background: #5B7FFF;
+    border: none;
+    border-radius: 4px;
+    color: white;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .filter-btn:hover {
+    background: #4561e8;
+    box-shadow: 0 2px 4px rgba(91, 127, 255, 0.3);
+  }
+
+  .filter-btn.secondary {
+    background: #ddd;
+    color: #333;
+  }
+
+  .filter-btn.secondary:hover {
+    background: #ccc;
+  }
+
+  .states-info {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    font-size: 13px;
+    color: #666;
+  }
+
+  .states-total,
+  .states-showing {
+    display: flex;
+    gap: 5px;
+  }
+
+  .states-table-wrapper {
+    flex: 1;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    background: white;
+  }
+
+  .states-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .states-table thead {
+    background: #f8f9fa;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  .states-table th {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 2px solid #ddd;
+    color: #333;
+    font-weight: 600;
+    user-select: none;
+  }
+
+  .states-table th.sortable {
+    cursor: pointer;
+    transition: background-color 0.2s;
+  }
+
+  .states-table th.sortable:hover {
+    background-color: #f0f0f0;
+  }
+
+  .states-table th.sorted {
+    background-color: #e8ecff;
+    color: #5B7FFF;
+  }
+
+  .sort-indicator {
+    margin-left: 4px;
+    color: #5B7FFF;
+    font-weight: bold;
+  }
+
+  .states-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #eee;
+    color: #333;
+  }
+
+  .states-table tbody tr:hover {
+    background-color: #f9f9f9;
+  }
+
+  .states-table tbody tr:nth-child(even) {
+    background-color: #fafafa;
+  }
+
+  .states-pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+    font-size: 13px;
+    color: #666;
+    flex-wrap: wrap;
+  }
+
+  .pagination-controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 20px;
+    flex: 1;
+  }
+
+  .pagination-btn {
+    padding: 6px 12px;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s;
+  }
+
+  .pagination-btn:hover:not(:disabled) {
+    background: #f8f9fa;
+    border-color: #5B7FFF;
+    color: #5B7FFF;
+  }
+
+  .pagination-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .pagination-info {
+    min-width: 100px;
+    text-align: center;
+  }
+
+  .page-size-control {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: #666;
+  }
+
+  .page-size-control label {
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .page-size-select {
+    padding: 6px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 12px;
+    background: white;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .page-size-select:hover {
+    border-color: #5B7FFF;
+  }
+
+  .page-size-select:focus {
+    outline: none;
+    border-color: #5B7FFF;
+    box-shadow: 0 0 0 2px rgba(91, 127, 255, 0.1);
+  }
+
+  /* Scrollbar styling for table */
+  .states-table-wrapper::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .states-table-wrapper::-webkit-scrollbar-track {
+    background: #f1f1f1;
+  }
+
+  .states-table-wrapper::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+  }
+
+  .states-table-wrapper::-webkit-scrollbar-thumb:hover {
+    background: #555;
+  }
+
+  /* Scrollbar styling for sidebar */
+  .sidebar::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .sidebar::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+  }
+
+  .sidebar::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 3px;
+  }
+
+  .sidebar::-webkit-scrollbar-thumb:hover {
+    background: #555;
+  }
+</style>{{end}}

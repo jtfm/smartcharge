@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +18,9 @@ import (
 	"github.com/jtfm/smartcharge/core/dynamodb"
 	"github.com/rs/zerolog/log"
 )
+
+//go:embed templates/*
+var templatesFS embed.FS
 
 type DashboardData struct {
 	SystemStates []dynamodb.SystemState `json:"system_states"`
@@ -81,27 +86,54 @@ func isInLambda() bool {
 	return os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != ""
 }
 
-func handler(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	// Get query parameters for time range (default to next 24 hours)
-	hoursParam := request.QueryStringParameters["hours"]
+func calculateHoursRange(now time.Time, hoursParam string) (time.Time, time.Time) {
 	hours := 24
 	if hoursParam != "" {
-		if h, err := strconv.Atoi(hoursParam); err == nil && h > 0 && h <= 168 { // Max 1 week
+		if h, err := strconv.Atoi(hoursParam); err == nil && h > 0 && h <= 730 { // Max 30 days
 			hours = h
 		}
 	}
 
-	// Calculate time range
+	end := now.Add(time.Duration(hours) * time.Hour)
+	return now, end
+}
+
+func handler(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	now := time.Now()
 	// Show what time zone the server is in
 	log.Info().Msgf("Server time zone: %s", now.Location().String())
-	end := now.Add(time.Duration(hours) * time.Hour)
+
+	// Check for explicit date range parameters first
+	fromDateParam := request.QueryStringParameters["fromDate"]
+	toDateParam := request.QueryStringParameters["toDate"]
+
+	var start, end time.Time
+
+	// If date range is provided, use it
+	if fromDateParam != "" && toDateParam != "" {
+		// Try parsing as ISO 8601 date format (YYYY-MM-DD)
+		parsedFrom, errFrom := time.Parse("2006-01-02", fromDateParam)
+		parsedTo, errTo := time.Parse("2006-01-02", toDateParam)
+
+		if errFrom == nil && errTo == nil {
+			start = parsedFrom
+			// Set end to end of day
+			end = parsedTo.Add(24*time.Hour - time.Second)
+			log.Info().Msgf("Using date range: %s to %s", start.Format("2006-01-02"), end.Format("2006-01-02"))
+		} else {
+			// Fall back to hours parameter if date parsing fails
+			start, end = calculateHoursRange(now, request.QueryStringParameters["hours"])
+		}
+	} else {
+		// Use hours parameter (default to next 24 hours)
+		start, end = calculateHoursRange(now, request.QueryStringParameters["hours"])
+	}
 
 	// Initialize DynamoDB client
 	dbClient := dynamodb.InitDbClient(ctx)
 
 	// Query system states
-	systemStates, err := dbClient.ReadSystemStates(ctx, now, end)
+	systemStates, err := dbClient.ReadSystemStates(ctx, start, end)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to read system states")
 		return events.APIGatewayProxyResponse{
@@ -115,19 +147,67 @@ func handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 	acceptHeader := request.Headers["Accept"]
 
 	if format == "json" || acceptHeader == "application/json" {
-		return handleJSONResponse(systemStates)
+		return handleJSONResponse(systemStates, request.QueryStringParameters)
 	}
 
 	return handleHTMLResponse(systemStates)
 }
 
-func handleJSONResponse(systemStates []dynamodb.SystemState) (events.APIGatewayProxyResponse, error) {
-	data := DashboardData{
-		SystemStates: systemStates,
-		Generated:    time.Now(),
+func handleJSONResponse(systemStates []dynamodb.SystemState, queryParams map[string]string) (events.APIGatewayProxyResponse, error) {
+	// Parse pagination parameters
+	page := 1
+	pageSize := 100
+
+	if p, err := strconv.Atoi(queryParams["page"]); err == nil && p > 0 {
+		page = p
+	}
+	if ps, err := strconv.Atoi(queryParams["pageSize"]); err == nil && ps > 0 && ps <= 1000 {
+		pageSize = ps
 	}
 
-	jsonData, err := json.Marshal(data)
+	// Parse sorting parameters
+	sortBy := queryParams["sortBy"]
+	sortOrder := queryParams["sortOrder"] // "asc" or "desc"
+	if sortOrder != "asc" && sortOrder != "desc" {
+		sortOrder = "asc"
+	}
+
+	// Apply sorting
+	systemStates = sortSystemStates(systemStates, sortBy, sortOrder)
+
+	// Apply pagination
+	totalRecords := len(systemStates)
+	start := (page - 1) * pageSize
+	end := start + pageSize
+
+	if start >= totalRecords {
+		start = totalRecords
+	}
+	if end > totalRecords {
+		end = totalRecords
+	}
+
+	paginatedStates := systemStates[start:end]
+
+	// Create response with pagination metadata
+	responseData := map[string]interface{}{
+		"system_states": paginatedStates,
+		"generated":     time.Now(),
+		"pagination": map[string]interface{}{
+			"page":         page,
+			"pageSize":     pageSize,
+			"totalRecords": totalRecords,
+			"totalPages":   (totalRecords + pageSize - 1) / pageSize,
+			"hasNextPage":  end < totalRecords,
+			"hasPrevPage":  start > 0,
+		},
+		"sorting": map[string]interface{}{
+			"sortBy":    sortBy,
+			"sortOrder": sortOrder,
+		},
+	}
+
+	jsonData, err := json.Marshal(responseData)
 	if err != nil {
 		return events.APIGatewayProxyResponse{
 			StatusCode: 500,
@@ -145,6 +225,90 @@ func handleJSONResponse(systemStates []dynamodb.SystemState) (events.APIGatewayP
 		},
 		Body: string(jsonData),
 	}, nil
+}
+
+func sortSystemStates(states []dynamodb.SystemState, sortBy, sortOrder string) []dynamodb.SystemState {
+	// Create a copy to avoid modifying the original
+	sorted := make([]dynamodb.SystemState, len(states))
+	copy(sorted, states)
+
+	// Define comparator based on sortBy parameter
+	switch sortBy {
+	case "start_time":
+		if sortOrder == "desc" {
+			sort.Slice(sorted, func(i, j int) bool {
+				return sorted[i].StartTime.After(sorted[j].StartTime)
+			})
+		} else {
+			sort.Slice(sorted, func(i, j int) bool {
+				return sorted[i].StartTime.Before(sorted[j].StartTime)
+			})
+		}
+	case "pv_estimate":
+		if sortOrder == "desc" {
+			sort.Slice(sorted, func(i, j int) bool {
+				return floatPtrValue(sorted[i].PvEstimate) > floatPtrValue(sorted[j].PvEstimate)
+			})
+		} else {
+			sort.Slice(sorted, func(i, j int) bool {
+				return floatPtrValue(sorted[i].PvEstimate) < floatPtrValue(sorted[j].PvEstimate)
+			})
+		}
+	case "predicted_usage":
+		if sortOrder == "desc" {
+			sort.Slice(sorted, func(i, j int) bool {
+				return floatPtrValue(sorted[i].PredictedUsage) > floatPtrValue(sorted[j].PredictedUsage)
+			})
+		} else {
+			sort.Slice(sorted, func(i, j int) bool {
+				return floatPtrValue(sorted[i].PredictedUsage) < floatPtrValue(sorted[j].PredictedUsage)
+			})
+		}
+	case "predicted_battery_power":
+		if sortOrder == "desc" {
+			sort.Slice(sorted, func(i, j int) bool {
+				return floatPtrValue(sorted[i].PredictedBatteryPower) > floatPtrValue(sorted[j].PredictedBatteryPower)
+			})
+		} else {
+			sort.Slice(sorted, func(i, j int) bool {
+				return floatPtrValue(sorted[i].PredictedBatteryPower) < floatPtrValue(sorted[j].PredictedBatteryPower)
+			})
+		}
+	case "unit_rate":
+		if sortOrder == "desc" {
+			sort.Slice(sorted, func(i, j int) bool {
+				return floatPtrValue(sorted[i].UnitRate) > floatPtrValue(sorted[j].UnitRate)
+			})
+		} else {
+			sort.Slice(sorted, func(i, j int) bool {
+				return floatPtrValue(sorted[i].UnitRate) < floatPtrValue(sorted[j].UnitRate)
+			})
+		}
+	case "will_charge":
+		if sortOrder == "desc" {
+			sort.Slice(sorted, func(i, j int) bool {
+				return sorted[i].WillCharge && !sorted[j].WillCharge
+			})
+		} else {
+			sort.Slice(sorted, func(i, j int) bool {
+				return !sorted[i].WillCharge && sorted[j].WillCharge
+			})
+		}
+	default:
+		// Default sort by start_time ascending
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].StartTime.Before(sorted[j].StartTime)
+		})
+	}
+
+	return sorted
+}
+
+func floatPtrValue(ptr *float64) float64 {
+	if ptr == nil {
+		return 0
+	}
+	return *ptr
 }
 
 func handleHTMLResponse(systemStates []dynamodb.SystemState) (events.APIGatewayProxyResponse, error) {
@@ -170,327 +334,6 @@ func handleHTMLResponse(systemStates []dynamodb.SystemState) (events.APIGatewayP
 }
 
 func generateHTML(systemStates []dynamodb.SystemState) (string, error) {
-	tmpl := `<!DOCTYPE html>
-<html lang="en">
-<head>
-	<meta charset="UTF-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>Battery Dashboard - SmartCharge</title>
-	<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-	<style>
-		body {
-			font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-			margin: 0;
-			padding: 20px;
-			background-color: #f5f5f5;
-		}
-		.container {
-			max-width: 1200px;
-			margin: 0 auto;
-			background: white;
-			padding: 20px;
-			border-radius: 8px;
-			box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-		}
-		h1 {
-			color: #333;
-			text-align: center;
-			margin-bottom: 30px;
-		}
-		.chart-container {
-			position: relative;
-			height: 500px;
-			margin: 20px 0;
-		}
-		.stats {
-			display: grid;
-			grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-			gap: 20px;
-			margin: 20px 0;
-		}
-		.stat-card {
-			background: #f8f9fa;
-			padding: 15px;
-			border-radius: 6px;
-			border-left: 4px solid #007bff;
-		}
-		.stat-value {
-			font-size: 24px;
-			font-weight: bold;
-			color: #007bff;
-		}
-		.stat-label {
-			color: #666;
-			font-size: 14px;
-		}
-		.legend {
-			margin: 20px 0;
-			padding: 15px;
-			background: #f8f9fa;
-			border-radius: 6px;
-		}
-		.legend-item {
-			display: inline-block;
-			margin-right: 20px;
-			margin-bottom: 5px;
-		}
-		.legend-color {
-			display: inline-block;
-			width: 20px;
-			height: 15px;
-			margin-right: 5px;
-			vertical-align: middle;
-		}
-		.timestamp {
-			text-align: center;
-			color: #666;
-			font-size: 12px;
-			margin-top: 20px;
-		}
-	</style>
-</head>
-<body>
-	<div class="container">
-		<h1>🔋 Battery Dashboard</h1>
-		
-		<div class="stats">
-			<div class="stat-card">
-				<div class="stat-value">{{.DataPoints}}</div>
-				<div class="stat-label">Data Points</div>
-			</div>
-			<div class="stat-card">
-				<div class="stat-value">{{.ChargeSlots}}</div>
-				<div class="stat-label">Planned Charge Slots</div>
-			</div>
-			<div class="stat-card">
-				<div class="stat-value">{{.MaxPrice}}p</div>
-				<div class="stat-label">Max Unit Price</div>
-			</div>
-			<div class="stat-card">
-				<div class="stat-value">{{.MinPrice}}p</div>
-				<div class="stat-label">Min Unit Price</div>
-			</div>
-		</div>
-
-		<div class="legend">
-			<div class="legend-item">
-				<span class="legend-color" style="background-color: #0000FF;"></span>
-				Battery Power (kW)
-			</div>
-			<div class="legend-item">
-				<span class="legend-color" style="background-color: #FFD700;"></span>
-				Predicted Usage (kW)
-			</div>
-			<div class="legend-item">
-				<span class="legend-color" style="background: linear-gradient(to right, #00c800, #ffa500, #ff0000); width: 100px;"></span>
-				Unit Price (Green = Cheap, Red = Expensive)
-			</div>
-			<div class="legend-item">
-				<span class="legend-color" style="background-color: rgba(100, 150, 255, 0.4);"></span>
-				Charging Slots (Background)
-			</div>
-		</div>
-		
-		<div class="chart-container">
-			<div id="batteryChart"></div>
-		</div>
-
-		<div class="timestamp">
-			Generated: {{.Timestamp}}
-		</div>
-	</div>
-
-	<script>
-		const systemStates = {{.SystemStatesJSON}};
-		
-		// Prepare time arrays - use actual timestamps for proper time-based positioning
-		const times = systemStates.map(state => state.start_time);
-		const batteryPowerData = systemStates.map(state => state.predicted_battery_power || 0);
-		const predictedUsageData = systemStates.map(state => state.predicted_usage || 0);
-		const unitPriceData = systemStates.map(state => state.unit_rate || 0);
-
-		// For bars: shift x values by 15 minutes (half of 30 min slot) so bars start at slot beginning
-		// Calculate midpoint times for bars (15 minutes = 900000 ms after start)
-		const barTimes = systemStates.map(state => {
-			const startTime = new Date(state.start_time);
-			return new Date(startTime.getTime() + 900000).toISOString(); // +15 minutes
-		});
-
-		// Calculate min and max prices for color scaling
-		const pricesForScaling = unitPriceData.filter(p => p > 0);
-		const minPrice = Math.min(...pricesForScaling);
-		const maxPrice = Math.max(...pricesForScaling);
-
-		// Function to get color based on price value using continuous spectrum
-		function getPriceColor(price) {
-			if (price <= 0) return 'rgba(0, 0, 0, 0)';
-			
-			const normalized = (price - minPrice) / (maxPrice - minPrice);
-			let r, g, b;
-			
-			if (normalized < 0.5) {
-				const t = normalized * 2;
-				r = Math.round(255 * t);
-				g = 200;
-				b = 0;
-			} else {
-				const t = (normalized - 0.5) * 2;
-				r = 255;
-				g = Math.round(200 * (1 - t));
-				b = 0;
-			}
-			
-			return 'rgba(' + r + ', ' + g + ', ' + b + ', 0.4)';
-		}
-
-		// Create colors for each price bar
-		const priceBarColors = unitPriceData.map(price => getPriceColor(price));
-
-		// Create shapes for charging slot backgrounds and 30-minute interval grid
-		const shapes = [];
-		
-		// Add 30-minute interval grid lines
-		systemStates.forEach((state, index) => {
-			if (index < systemStates.length - 1) {
-				shapes.push({
-					type: 'line',
-					xref: 'x',
-					yref: 'paper',
-					x0: state.start_time,
-					x1: state.start_time,
-					y0: 0,
-					y1: 1,
-					line: {
-						color: 'rgba(200, 200, 200, 0.3)',
-						width: 1,
-						dash: 'dot'
-					},
-					layer: 'below'
-				});
-			}
-		});
-
-		// Add charging slot backgrounds
-		systemStates.forEach((state, index) => {
-			if (state.will_charge && index < systemStates.length - 1) {
-				shapes.push({
-					type: 'rect',
-					xref: 'x',
-					yref: 'paper',
-					x0: state.start_time,
-					x1: systemStates[index + 1].start_time,
-					y0: 0,
-					y1: 1,
-					fillcolor: 'rgba(100, 150, 255, 0.15)',
-					line: {
-						width: 0
-					},
-					layer: 'below'
-				});
-			}
-		});
-
-		// Create traces - price bars first, then lines on top
-		const traces = [
-			{
-				name: 'Unit Price (p/kWh)',
-				x: barTimes,
-				y: unitPriceData,
-				type: 'bar',
-				marker: {
-					color: priceBarColors,
-					line: {
-						width: 1,
-						color: priceBarColors.map(c => c.replace('0.8', '1.0'))
-					}
-				},
-				yaxis: 'y2',
-				width: 1800000, // 30 minutes in milliseconds
-				hoverlabel: {
-					bgcolor: 'rgba(255, 255, 255, 0.9)',
-					bordercolor: '#333'
-				}
-			},
-			{
-				name: 'Battery Power (kW)',
-				x: times,
-				y: batteryPowerData,
-				type: 'scatter',
-				mode: 'lines',
-				line: {
-					color: '#0000FF',
-					width: 3
-				},
-				yaxis: 'y'
-			},
-			{
-				name: 'Predicted Usage (kW)',
-				x: times,
-				y: predictedUsageData,
-				type: 'scatter',
-				mode: 'lines',
-				line: {
-					color: '#FFFF00',
-					width: 3
-				},
-				yaxis: 'y'
-			}
-		];
-
-		// Layout configuration
-		const layout = {
-			title: 'Battery State, Usage Predictions & Charging Schedule',
-			showlegend: false,
-			xaxis: {
-				title: 'Time',
-				type: 'date',
-				tickformat: '%b %d\n%H:%M',
-				gridcolor: 'rgba(0, 0, 0, 0.1)',
-				dtick: 7200000, // 2 hours in milliseconds (reduced from 30 minutes)
-				tick0: systemStates.length > 0 ? systemStates[0].start_time : null
-			},
-			yaxis: {
-				title: 'Power (kW)',
-				side: 'left',
-				gridcolor: 'rgba(0, 0, 0, 0.1)'
-			},
-			yaxis2: {
-				title: 'Unit Price (p/kWh)',
-				side: 'right',
-				overlaying: 'y',
-				rangemode: 'tozero',
-				showgrid: false
-			},
-			shapes: shapes,
-			hovermode: 'x unified',
-			hoverdistance: 50,
-			margin: {
-				l: 60,
-				r: 60,
-				t: 80,
-				b: 60
-			}
-		};
-
-		// Configuration
-		const config = {
-			responsive: true,
-			displayModeBar: true,
-			displaylogo: false,
-			modeBarButtonsToRemove: ['lasso2d', 'select2d']
-		};
-
-		// Create the plot
-		Plotly.newPlot('batteryChart', traces, layout, config);
-
-		// Auto-refresh every 5 minutes
-		setTimeout(() => {
-			window.location.reload();
-		}, 300000);
-	</script>
-</body>
-</html>`
-
 	// Calculate statistics
 	dataPoints := len(systemStates)
 	chargeSlots := 0
@@ -538,13 +381,14 @@ func generateHTML(systemStates []dynamodb.SystemState) (string, error) {
 		Timestamp:        time.Now().Format("2006-01-02 15:04:05 MST"),
 	}
 
-	t, err := template.New("dashboard").Parse(tmpl)
+	// Parse all templates from embedded filesystem
+	tmpl, err := template.ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
-		return "", fmt.Errorf("failed to parse template: %w", err)
+		return "", fmt.Errorf("failed to parse templates: %w", err)
 	}
 
 	var htmlBuffer strings.Builder
-	err = t.Execute(&htmlBuffer, data)
+	err = tmpl.ExecuteTemplate(&htmlBuffer, "dashboard", data)
 	if err != nil {
 		return "", fmt.Errorf("failed to execute template: %w", err)
 	}
